@@ -75,6 +75,9 @@ uv run repos-update -q ~/Code
 | `-j N`, `--jobs N` | Update N repos in parallel (default: 1) |
 | `--dry-run` | Show what would be updated without pulling |
 | `--dirty` | List repos with uncommitted changes |
+| `--status` | Show status: branch, ahead/behind, dirty state |
+| `--remotes` | List repos with their remote URLs |
+| `--no-remotes` | List repos without any remote configured |
 | `-q`, `--quiet` | Silent mode - only show final report |
 | `--full-path` | Show full absolute paths instead of relative |
 | `--version` | Show version number |
