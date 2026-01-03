@@ -128,6 +128,60 @@ def list_remotes(repos: List[Path]) -> None:
             print(f"{Color.GRAY}○{Color.RESET} {path_str} {Color.GRAY}(no remote){Color.RESET}")
 
 
+def get_repo_status(repo: Path) -> dict:
+    """Get status info for a repository."""
+    branch = get_current_branch(repo)
+    dirty = is_dirty(repo)
+    has_rem = has_remote(repo)
+    ahead = behind = 0
+
+    if has_rem:
+        # Fetch to get latest info
+        run_git(repo, "fetch", "--quiet")
+        # Get ahead/behind counts
+        result = run_git(repo, "rev-list", "--left-right", "--count", "@{u}...HEAD")
+        if result.returncode == 0:
+            parts = result.stdout.strip().split()
+            if len(parts) == 2:
+                behind, ahead = int(parts[0]), int(parts[1])
+
+    return {
+        "branch": branch,
+        "dirty": dirty,
+        "ahead": ahead,
+        "behind": behind,
+        "has_remote": has_rem,
+    }
+
+
+def show_status(repos: List[Path]) -> None:
+    """Show status summary for all repositories."""
+    for repo in repos:
+        status = get_repo_status(repo)
+        path_str = format_path(repo)
+        branch = status["branch"]
+
+        # Build status indicators
+        indicators = []
+
+        if not status["has_remote"]:
+            print(f"{Color.GRAY}○{Color.RESET} {path_str} ({branch}) {Color.GRAY}no remote{Color.RESET}")
+            continue
+
+        if status["ahead"] > 0:
+            indicators.append(f"{Color.GREEN}↑{status['ahead']}{Color.RESET}")
+        if status["behind"] > 0:
+            indicators.append(f"{Color.RED}↓{status['behind']}{Color.RESET}")
+        if status["dirty"]:
+            indicators.append(f"{Color.YELLOW}✗ dirty{Color.RESET}")
+
+        if not indicators and status["ahead"] == 0 and status["behind"] == 0:
+            indicators.append(f"{Color.GREEN}✓{Color.RESET}")
+
+        status_str = " ".join(indicators)
+        print(f"{Color.GREEN}●{Color.RESET} {path_str} ({branch}) {status_str}")
+
+
 def get_current_branch(repo: Path) -> str:
     """Get the current branch name."""
     result = run_git(repo, "branch", "--show-current")
@@ -259,7 +313,7 @@ def check_dirty_repos(repos: List[Path], quiet: bool = False) -> List[RepoResult
             result = run_git(repo, "status", "--porcelain")
             results.append(RepoResult(repo, Status.DIRTY, result.stdout.strip(), branch))
             if not quiet:
-                print(f"{Color.YELLOW}Dirty:{Color.RESET} {format_path(repo)}")
+                print(f"{Color.GREEN}●{Color.RESET} {format_path(repo)} ({branch}) {Color.YELLOW}✗ dirty{Color.RESET}")
     return results
 
 
@@ -398,6 +452,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="List repos without any remote configured (no updates)",
     )
     parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Show status summary: branch, ahead/behind, dirty state (no updates)",
+    )
+    parser.add_argument(
         "--full-path",
         action="store_true",
         help="Show full absolute paths instead of relative paths",
@@ -450,6 +509,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"\n{Color.GRAY}{len(no_remote_repos)} repos without remote.{Color.RESET}")
         else:
             print(f"{Color.GREEN}All repositories have remotes configured.{Color.RESET}")
+        return 0
+
+    # --status mode: show status summary for all repos
+    if args.status:
+        show_status(repos)
         return 0
 
     # Update repos
