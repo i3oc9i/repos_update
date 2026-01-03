@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -24,6 +25,33 @@ class Color:
     RESET = "\033[0m"
 
 
+# Global settings for path display
+_base_dirs: List[Path] = []
+_full_path: bool = False
+
+
+def set_path_display(base_dirs: List[Path], full_path: bool) -> None:
+    """Configure how paths are displayed."""
+    global _base_dirs, _full_path
+    _base_dirs = [d.resolve() for d in base_dirs]
+    _full_path = full_path
+
+
+def format_path(path: Path) -> str:
+    """Format a path for display (relative or absolute)."""
+    if _full_path:
+        return str(path)
+
+    # Try to make path relative to one of the base directories
+    path = path.resolve()
+    for base in _base_dirs:
+        try:
+            return str(path.relative_to(base.parent))
+        except ValueError:
+            continue
+    return str(path)
+
+
 class Status(Enum):
     """Repository update status."""
     UPDATED = "updated"
@@ -40,6 +68,7 @@ class RepoResult:
     status: Status
     message: str = ""
     branch: str = ""
+    changes: str = ""  # Change hints (e.g., "3 commits" or commit subject)
 
 
 def find_repos(directories: List[Path]) -> List[Path]:
@@ -79,6 +108,64 @@ def get_current_branch(repo: Path) -> str:
     return result.stdout.strip() or "HEAD"
 
 
+def get_head_commit(repo: Path) -> str:
+    """Get current HEAD commit hash."""
+    result = run_git(repo, "rev-parse", "HEAD")
+    return result.stdout.strip()
+
+
+def get_diff_stats(repo: Path, old_head: str, new_head: str) -> str:
+    """Get file/line change stats between two commits."""
+    result = run_git(repo, "diff", "--shortstat", f"{old_head}..{new_head}")
+    output = result.stdout.strip()
+    if not output:
+        return ""
+
+    # Parse files, insertions, deletions
+    files = insertions = deletions = 0
+    if "file" in output:
+        match = re.search(r'(\d+) file', output)
+        files = int(match.group(1)) if match else 0
+    if "insertion" in output:
+        match = re.search(r'(\d+) insertion', output)
+        insertions = int(match.group(1)) if match else 0
+    if "deletion" in output:
+        match = re.search(r'(\d+) deletion', output)
+        deletions = int(match.group(1)) if match else 0
+
+    # Format: "5 files ▲120 ▼45" with colors
+    parts = []
+    if files:
+        parts.append(f"{files} file{'s' if files != 1 else ''}")
+    if insertions or deletions:
+        parts.append(f"{Color.GREEN}▲{insertions}{Color.RESET} {Color.RED}▼{deletions}{Color.RESET}")
+    return " ".join(parts)
+
+
+def get_change_summary(repo: Path, old_head: str, new_head: str) -> str:
+    """Get summary of changes between two commits."""
+    if old_head == new_head:
+        return ""
+
+    # Get commit info
+    result = run_git(repo, "log", "--oneline", f"{old_head}..{new_head}")
+    lines = [l for l in result.stdout.strip().split("\n") if l]
+
+    if not lines:
+        return ""
+
+    # Get diff stats
+    stats = get_diff_stats(repo, old_head, new_head)
+
+    # Build summary - always show commit count
+    count = len(lines)
+    commit_info = f"{count} commit{'s' if count != 1 else ''}"
+
+    if stats:
+        return f"{commit_info}, {stats}"
+    return commit_info
+
+
 def is_dirty(repo: Path) -> bool:
     """Check if repository has uncommitted changes."""
     result = run_git(repo, "status", "--porcelain")
@@ -113,6 +200,9 @@ def update_repo(repo: Path, dry_run: bool = False) -> RepoResult:
             return RepoResult(repo, Status.UPDATED, message, branch)
         return RepoResult(repo, Status.UP_TO_DATE, message, branch)
 
+    # Capture HEAD before pull
+    old_head = get_head_commit(repo)
+
     # Run git pull --all
     pull_result = run_git(repo, "pull", "--all")
 
@@ -127,7 +217,11 @@ def update_repo(repo: Path, dry_run: bool = False) -> RepoResult:
     if "already up to date" in output or "already up-to-date" in output:
         return RepoResult(repo, Status.UP_TO_DATE, "Already up to date", branch)
 
-    return RepoResult(repo, Status.UPDATED, pull_result.stdout.strip(), branch)
+    # Get change summary
+    new_head = get_head_commit(repo)
+    changes = get_change_summary(repo, old_head, new_head)
+
+    return RepoResult(repo, Status.UPDATED, pull_result.stdout.strip(), branch, changes)
 
 
 def check_dirty_repos(repos: List[Path], quiet: bool = False) -> List[RepoResult]:
@@ -139,7 +233,7 @@ def check_dirty_repos(repos: List[Path], quiet: bool = False) -> List[RepoResult
             result = run_git(repo, "status", "--porcelain")
             results.append(RepoResult(repo, Status.DIRTY, result.stdout.strip(), branch))
             if not quiet:
-                print(f"{Color.YELLOW}Dirty:{Color.RESET} {repo}")
+                print(f"{Color.YELLOW}Dirty:{Color.RESET} {format_path(repo)}")
     return results
 
 
@@ -185,7 +279,9 @@ def print_progress(result: RepoResult, dry_run: bool = False) -> None:
         color = Color.RED
         symbol = "✗"
 
-    print(f"{color}{symbol}{Color.RESET} {prefix}{result.path}")
+    # Add change hints for updated repos
+    hint = f" {Color.GRAY}({result.changes}){Color.RESET}" if result.changes else ""
+    print(f"{color}{symbol}{Color.RESET} {prefix}{format_path(result.path)}{hint}")
 
 
 def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
@@ -205,7 +301,8 @@ def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
         action = "Would update" if dry_run else "Updated"
         print(f"{Color.GREEN}✓ {action}:{Color.RESET} {len(updated)}")
         for r in updated:
-            print(f"  {r.path}")
+            hint = f" {Color.GRAY}({r.changes}){Color.RESET}" if r.changes else ""
+            print(f"  {format_path(r.path)}{hint}")
 
     if up_to_date:
         print(f"{Color.GRAY}· Already up to date:{Color.RESET} {len(up_to_date)}")
@@ -216,12 +313,12 @@ def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
     if dirty:
         print(f"{Color.YELLOW}! Dirty repos:{Color.RESET} {len(dirty)}")
         for r in dirty:
-            print(f"  {r.path}")
+            print(f"  {format_path(r.path)}")
 
     if errors:
         print(f"{Color.RED}✗ Errors:{Color.RESET} {len(errors)}")
         for r in errors:
-            print(f"  {r.path}")
+            print(f"  {format_path(r.path)}")
             if r.message:
                 for line in r.message.split("\n")[:3]:
                     print(f"    {Color.RED}{line}{Color.RESET}")
@@ -265,6 +362,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="List repos with uncommitted changes (no updates)",
     )
     parser.add_argument(
+        "--full-path",
+        action="store_true",
+        help="Show full absolute paths instead of relative paths",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -273,6 +375,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     directories = [Path(d) for d in args.directories]
+
+    # Configure path display
+    set_path_display(directories, args.full_path)
 
     if not args.quiet:
         print(f"{Color.BOLD}Scanning for git repositories...{Color.RESET}")

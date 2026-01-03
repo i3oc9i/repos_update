@@ -8,9 +8,18 @@ A Python CLI tool to recursively scan directories and update all git repositorie
 - Runs `git pull --all` to fetch all branches
 - Runs `git remote prune origin` to remove stale remote branches
 - Colored terminal output (green=updated, gray=unchanged, red=error)
+- Change summary with commit count, files changed, and lines added/removed
 - Parallel updates with `-j N`
 - Dry-run mode to preview changes
 - Check for dirty (uncommitted) repositories
+
+## Output Example
+
+```
+✓ Code/project1 (1 commit, 2 files ▲10 ▼3)
+✓ Code/project2 (3 commits, 5 files ▲120 ▼45)
+· Code/project3
+```
 
 ## Installation
 
@@ -67,6 +76,7 @@ uv run repos-update -q ~/Code
 | `--dry-run` | Show what would be updated without pulling |
 | `--dirty` | List repos with uncommitted changes |
 | `-q`, `--quiet` | Silent mode - only show final report |
+| `--full-path` | Show full absolute paths instead of relative |
 | `--version` | Show version number |
 
 ## Development Tasks

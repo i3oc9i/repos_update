@@ -20,6 +20,7 @@ uv run repos-update -j 4                 # Update 4 repos in parallel
 uv run repos-update --dry-run            # Show what would be updated
 uv run repos-update --dirty              # List repos with uncommitted changes
 uv run repos-update -q                   # Quiet mode (only show final report)
+uv run repos-update --full-path          # Show absolute paths
 ```
 
 ## Project Structure
@@ -32,3 +33,6 @@ Single-file module: `repos_update.py`
 - `update_repo()` - Run `git pull --all` + `git remote prune origin`
 - `is_dirty()` - Check for uncommitted changes
 - `update_repos_parallel()` - ThreadPoolExecutor for parallel updates
+- `get_change_summary()` - Get commit count and diff stats
+- `get_diff_stats()` - Parse `git diff --shortstat` for files/lines changed
+- `format_path()` - Format paths as relative or absolute
