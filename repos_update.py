@@ -393,6 +393,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="List repos with their remote URLs (no updates)",
     )
     parser.add_argument(
+        "--no-remotes",
+        action="store_true",
+        help="List repos without any remote configured (no updates)",
+    )
+    parser.add_argument(
         "--full-path",
         action="store_true",
         help="Show full absolute paths instead of relative paths",
@@ -434,6 +439,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     # --remotes mode: list repos with their remote URLs
     if args.remotes:
         list_remotes(repos)
+        return 0
+
+    # --no-remotes mode: list repos without remotes
+    if args.no_remotes:
+        no_remote_repos = [r for r in repos if not has_remote(r)]
+        if no_remote_repos:
+            for repo in no_remote_repos:
+                print(f"{Color.GRAY}○{Color.RESET} {format_path(repo)}")
+            print(f"\n{Color.GRAY}{len(no_remote_repos)} repos without remote.{Color.RESET}")
+        else:
+            print(f"{Color.GREEN}All repositories have remotes configured.{Color.RESET}")
         return 0
 
     # Update repos
