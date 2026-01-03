@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "repos-update"
+version = "0.1.0"
+description = "Recursively scan directories and update git repositories"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "i3oc9i", email = "i3oc9i@icloud.com" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Version Control :: Git",
+]
+
+[project.urls]
+Repository = "https://github.com/i3oc9i/repos_update"
+
+[project.scripts]
+repos-update = "repos_update:main"
+
+[project.optional-dependencies]
+dev = ["poethepoet"]
+
+[tool.poe.tasks]
+clean = "rm -rf dist/ __pycache__/ *.egg-info/"
+build = "uv build"
