@@ -102,6 +102,32 @@ def has_remote(repo: Path) -> bool:
     return bool(result.stdout.strip())
 
 
+def get_remote_url(repo: Path, remote: str = "origin") -> str:
+    """Get the URL of a remote."""
+    result = run_git(repo, "remote", "get-url", remote)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def list_remotes(repos: List[Path]) -> None:
+    """List all repositories with their remote URLs."""
+    for repo in repos:
+        result = run_git(repo, "remote", "-v")
+        remotes = {}
+        for line in result.stdout.strip().split("\n"):
+            if line and "(fetch)" in line:
+                parts = line.split()
+                if len(parts) >= 2:
+                    remotes[parts[0]] = parts[1]
+
+        path_str = format_path(repo)
+        if remotes:
+            remote_str = ", ".join(f"{k}: {v}" for k, v in remotes.items())
+            print(f"{Color.GREEN}●{Color.RESET} {path_str}")
+            print(f"  {Color.GRAY}{remote_str}{Color.RESET}")
+        else:
+            print(f"{Color.GRAY}○{Color.RESET} {path_str} {Color.GRAY}(no remote){Color.RESET}")
+
+
 def get_current_branch(repo: Path) -> str:
     """Get the current branch name."""
     result = run_git(repo, "branch", "--show-current")
@@ -362,6 +388,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="List repos with uncommitted changes (no updates)",
     )
     parser.add_argument(
+        "--remotes",
+        action="store_true",
+        help="List repos with their remote URLs (no updates)",
+    )
+    parser.add_argument(
         "--full-path",
         action="store_true",
         help="Show full absolute paths instead of relative paths",
@@ -398,6 +429,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"{Color.GREEN}All repositories are clean.{Color.RESET}")
         else:
             print(f"\n{Color.YELLOW}{len(results)} dirty repositories found.{Color.RESET}")
+        return 0
+
+    # --remotes mode: list repos with their remote URLs
+    if args.remotes:
+        list_remotes(repos)
         return 0
 
     # Update repos
