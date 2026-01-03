@@ -49,6 +49,9 @@ uv sync --extra dev
 ## Usage
 
 ```bash
+# Show usage/help
+uv run repos-update
+
 # Update all repos in a directory
 uv run repos-update ~/Code
 

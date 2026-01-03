@@ -467,6 +467,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         version=f"%(prog)s {__version__}",
     )
 
+    # Print usage if no arguments provided
+    if argv is None and len(sys.argv) == 1:
+        parser.print_help()
+        return 0
+
     args = parser.parse_args(argv)
 
     directories = [Path(d) for d in args.directories]
