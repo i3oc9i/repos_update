@@ -440,9 +440,7 @@ def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
     print(f"Total: {len(results)} repositories")
 
 
-def _is_path_arg(arg: str) -> bool:
-    """Check if argument looks like a path (not a command)."""
-    return arg.startswith(("/", ".", "~")) or os.path.exists(arg)
+COMMANDS = {"update", "dirty", "status", "remote", "no-remote"}
 
 
 def _run_command(args: argparse.Namespace) -> int:
@@ -518,10 +516,11 @@ def _run_command(args: argparse.Namespace) -> int:
 
 def main(argv: Optional[List[str]] = None) -> int:
     """Main entry point."""
-    # Handle default command: if first arg looks like a path, insert 'update'
     if argv is None:
         argv = sys.argv[1:]
-    if argv and _is_path_arg(argv[0]):
+
+    # Insert 'update' command if no command specified
+    if argv and argv[0] not in COMMANDS and argv[0] not in ("-h", "--help", "--version"):
         argv = ["update"] + list(argv)
 
     parser = argparse.ArgumentParser(
