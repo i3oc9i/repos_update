@@ -50,40 +50,52 @@ uv sync --extra dev
 
 ```bash
 # Show usage/help
-uv run repos-update
+uv run repos-update --help
 
-# Update all repos in a directory
+# Update all repos in a directory (default command)
 uv run repos-update ~/Code
 
 # Update repos in multiple directories
 uv run repos-update ~/Code ~/Projects
 
 # Update 8 repos in parallel (faster)
-uv run repos-update -j 8 ~/Code
+uv run repos-update update ~/Code -j 8
 
 # Preview what would be updated (no changes made)
-uv run repos-update --dry-run ~/Code
+uv run repos-update update ~/Code --dry-run
 
 # List repos with uncommitted changes
-uv run repos-update --dirty ~/Code
+uv run repos-update dirty ~/Code
 
-# Quiet mode - only show final report
-uv run repos-update -q ~/Code
+# Show status: branch, ahead/behind, dirty state
+uv run repos-update status ~/Code
+
+# List repos that have a remote configured
+uv run repos-update remote ~/Code
+
+# List repos without any remote
+uv run repos-update no-remote ~/Code
 ```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `update` | Update repositories (default command) |
+| `dirty` | List repos with uncommitted changes |
+| `status` | Show status: branch, ahead/behind, dirty state |
+| `remote` | List repos that have a remote configured |
+| `no-remote` | List repos without any remote configured |
 
 ## Options
 
-| Option | Description |
-|--------|-------------|
-| `-j N`, `--jobs N` | Update N repos in parallel (default: 1) |
-| `--dry-run` | Show what would be updated without pulling |
-| `--dirty` | List repos with uncommitted changes |
-| `--status` | Show status: branch, ahead/behind, dirty state |
-| `--remotes` | List repos with their remote URLs |
-| `--no-remotes` | List repos without any remote configured |
-| `-q`, `--quiet` | Silent mode - only show final report |
-| `--full-path` | Show full absolute paths instead of relative |
-| `--version` | Show version number |
+| Option | Applies to | Description |
+|--------|------------|-------------|
+| `-j N`, `--jobs N` | all | Process N repos in parallel (default: 1) |
+| `--dry-run` | update | Show what would be updated without pulling |
+| `-q`, `--quiet` | all | Quiet mode - only show summary |
+| `--full-path` | all | Show full absolute paths instead of relative |
+| `--version` | - | Show version number |
 
 ## Development Tasks
 

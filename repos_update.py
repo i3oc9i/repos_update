@@ -108,24 +108,34 @@ def get_remote_url(repo: Path, remote: str = "origin") -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def list_remotes(repos: List[Path]) -> None:
-    """List all repositories with their remote URLs."""
-    for repo in repos:
-        result = run_git(repo, "remote", "-v")
-        remotes = {}
-        for line in result.stdout.strip().split("\n"):
-            if line and "(fetch)" in line:
-                parts = line.split()
-                if len(parts) >= 2:
-                    remotes[parts[0]] = parts[1]
+def _get_repo_remotes(repo: Path) -> Optional[tuple[Path, dict]]:
+    """Get remotes for a single repo. Returns None if no remotes."""
+    result = run_git(repo, "remote", "-v")
+    remotes = {}
+    for line in result.stdout.strip().split("\n"):
+        if line and "(fetch)" in line:
+            parts = line.split()
+            if len(parts) >= 2:
+                remotes[parts[0]] = parts[1]
+    return (repo, remotes) if remotes else None
 
+
+def list_remotes(repos: List[Path], jobs: int = 1) -> None:
+    """List repositories that have remotes configured."""
+    if jobs > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            results = list(executor.map(_get_repo_remotes, repos))
+    else:
+        results = [_get_repo_remotes(repo) for repo in repos]
+
+    for item in results:
+        if item is None:
+            continue
+        repo, remotes = item
         path_str = format_path(repo)
-        if remotes:
-            remote_str = ", ".join(f"{k}: {v}" for k, v in remotes.items())
-            print(f"{Color.GREEN}●{Color.RESET} {path_str}")
-            print(f"  {Color.GRAY}{remote_str}{Color.RESET}")
-        else:
-            print(f"{Color.GRAY}○{Color.RESET} {path_str} {Color.GRAY}(no remote){Color.RESET}")
+        remote_str = ", ".join(f"{k}: {v}" for k, v in remotes.items())
+        print(f"{Color.GREEN}●{Color.RESET} {path_str}")
+        print(f"  {Color.GRAY}{remote_str}{Color.RESET}")
 
 
 def get_repo_status(repo: Path) -> dict:
@@ -154,10 +164,20 @@ def get_repo_status(repo: Path) -> dict:
     }
 
 
-def show_status(repos: List[Path]) -> None:
+def _get_status_with_path(repo: Path) -> tuple[Path, dict]:
+    """Get status for a repo along with its path."""
+    return (repo, get_repo_status(repo))
+
+
+def show_status(repos: List[Path], jobs: int = 1) -> None:
     """Show status summary for all repositories."""
-    for repo in repos:
-        status = get_repo_status(repo)
+    if jobs > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            results = list(executor.map(_get_status_with_path, repos))
+    else:
+        results = [(repo, get_repo_status(repo)) for repo in repos]
+
+    for repo, status in results:
         path_str = format_path(repo)
         branch = status["branch"]
 
@@ -304,16 +324,29 @@ def update_repo(repo: Path, dry_run: bool = False) -> RepoResult:
     return RepoResult(repo, Status.UPDATED, pull_result.stdout.strip(), branch, changes)
 
 
-def check_dirty_repos(repos: List[Path], quiet: bool = False) -> List[RepoResult]:
+def _check_dirty(repo: Path) -> Optional[RepoResult]:
+    """Check if a single repo is dirty. Returns RepoResult if dirty, None otherwise."""
+    branch = get_current_branch(repo)
+    if is_dirty(repo):
+        result = run_git(repo, "status", "--porcelain")
+        return RepoResult(repo, Status.DIRTY, result.stdout.strip(), branch)
+    return None
+
+
+def check_dirty_repos(repos: List[Path], jobs: int = 1, quiet: bool = False) -> List[RepoResult]:
     """Check which repositories have uncommitted changes."""
+    if jobs > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            all_results = list(executor.map(_check_dirty, repos))
+    else:
+        all_results = [_check_dirty(repo) for repo in repos]
+
     results = []
-    for repo in repos:
-        branch = get_current_branch(repo)
-        if is_dirty(repo):
-            result = run_git(repo, "status", "--porcelain")
-            results.append(RepoResult(repo, Status.DIRTY, result.stdout.strip(), branch))
+    for item in all_results:
+        if item is not None:
+            results.append(item)
             if not quiet:
-                print(f"{Color.GREEN}●{Color.RESET} {format_path(repo)} ({branch}) {Color.YELLOW}✗ dirty{Color.RESET}")
+                print(f"{Color.GREEN}●{Color.RESET} {format_path(item.path)} ({item.branch}) {Color.YELLOW}✗ dirty{Color.RESET}")
     return results
 
 
@@ -407,79 +440,21 @@ def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
     print(f"Total: {len(results)} repositories")
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    """Main entry point."""
-    parser = argparse.ArgumentParser(
-        prog="repos-update",
-        description="Recursively scan directories and update git repositories.",
-    )
-    parser.add_argument(
-        "directories",
-        nargs="*",
-        default=["."],
-        help="Directories to scan (default: current directory)",
-    )
-    parser.add_argument(
-        "-q", "--quiet",
-        action="store_true",
-        help="Silent mode - only show final report",
-    )
-    parser.add_argument(
-        "-j", "--jobs",
-        type=int,
-        default=1,
-        metavar="N",
-        help="Update N repos in parallel (default: 1)",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show what would be updated without pulling",
-    )
-    parser.add_argument(
-        "--dirty",
-        action="store_true",
-        help="List repos with uncommitted changes (no updates)",
-    )
-    parser.add_argument(
-        "--remotes",
-        action="store_true",
-        help="List repos with their remote URLs (no updates)",
-    )
-    parser.add_argument(
-        "--no-remotes",
-        action="store_true",
-        help="List repos without any remote configured (no updates)",
-    )
-    parser.add_argument(
-        "--status",
-        action="store_true",
-        help="Show status summary: branch, ahead/behind, dirty state (no updates)",
-    )
-    parser.add_argument(
-        "--full-path",
-        action="store_true",
-        help="Show full absolute paths instead of relative paths",
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-    )
+def _is_path_arg(arg: str) -> bool:
+    """Check if argument looks like a path (not a command)."""
+    return arg.startswith(("/", ".", "~")) or os.path.exists(arg)
 
-    # Print usage if no arguments provided
-    if argv is None and len(sys.argv) == 1:
-        parser.print_help()
-        return 0
 
-    args = parser.parse_args(argv)
-
+def _run_command(args: argparse.Namespace) -> int:
+    """Run the selected command."""
     directories = [Path(d) for d in args.directories]
 
     # Configure path display
     set_path_display(directories, args.full_path)
 
-    if not args.quiet:
+    quiet = getattr(args, "quiet", False)
+
+    if not quiet:
         print(f"{Color.BOLD}Scanning for git repositories...{Color.RESET}")
 
     repos = find_repos(directories)
@@ -488,26 +463,32 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("No git repositories found.")
         return 0
 
-    if not args.quiet:
+    if not quiet:
         print(f"Found {len(repos)} repositories.\n")
 
-    # --dirty mode: just list dirty repos
-    if args.dirty:
-        results = check_dirty_repos(repos, args.quiet)
+    command = args.command
+    jobs = args.jobs
+
+    if command == "dirty":
+        results = check_dirty_repos(repos, jobs=jobs, quiet=quiet)
         if not results:
             print(f"{Color.GREEN}All repositories are clean.{Color.RESET}")
         else:
             print(f"\n{Color.YELLOW}{len(results)} dirty repositories found.{Color.RESET}")
         return 0
 
-    # --remotes mode: list repos with their remote URLs
-    if args.remotes:
-        list_remotes(repos)
+    if command == "remote":
+        list_remotes(repos, jobs=jobs)
         return 0
 
-    # --no-remotes mode: list repos without remotes
-    if args.no_remotes:
-        no_remote_repos = [r for r in repos if not has_remote(r)]
+    if command == "no-remote":
+        if jobs > 1:
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                has_remote_results = list(executor.map(has_remote, repos))
+        else:
+            has_remote_results = [has_remote(r) for r in repos]
+
+        no_remote_repos = [r for r, has_rem in zip(repos, has_remote_results) if not has_rem]
         if no_remote_repos:
             for repo in no_remote_repos:
                 print(f"{Color.GRAY}○{Color.RESET} {format_path(repo)}")
@@ -516,24 +497,129 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"{Color.GREEN}All repositories have remotes configured.{Color.RESET}")
         return 0
 
-    # --status mode: show status summary for all repos
-    if args.status:
-        show_status(repos)
+    if command == "status":
+        show_status(repos, jobs=jobs)
         return 0
 
-    # Update repos
+    # Default: update command
     results = update_repos_parallel(
         repos,
-        jobs=args.jobs,
-        dry_run=args.dry_run,
-        quiet=args.quiet,
+        jobs=jobs,
+        dry_run=getattr(args, "dry_run", False),
+        quiet=quiet,
     )
 
-    print_report(results, args.dry_run)
+    print_report(results, getattr(args, "dry_run", False))
 
     # Return non-zero if there were errors
     errors = [r for r in results if r.status == Status.ERROR]
     return 1 if errors else 0
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """Main entry point."""
+    # Handle default command: if first arg looks like a path, insert 'update'
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and _is_path_arg(argv[0]):
+        argv = ["update"] + list(argv)
+
+    parser = argparse.ArgumentParser(
+        prog="repos-update",
+        description="Recursively scan directories and update git repositories.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+
+    subparsers = parser.add_subparsers(dest="command", title="commands", metavar="")
+
+    # Shared arguments for all commands
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument(
+        "directories",
+        nargs="+",
+        metavar="DIRECTORY",
+        help="Directories to scan",
+    )
+    shared.add_argument(
+        "-j", "--jobs",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Process N repos in parallel (default: 1)",
+    )
+    shared.add_argument(
+        "--full-path",
+        action="store_true",
+        help="Show full absolute paths instead of relative paths",
+    )
+    shared.add_argument(
+        "-q", "--quiet",
+        action="store_true",
+        help="Quiet mode - only show summary",
+    )
+
+    # update command
+    update_parser = subparsers.add_parser(
+        "update",
+        parents=[shared],
+        help="Update repositories (default command)",
+    )
+    update_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be updated without pulling",
+    )
+
+    # dirty command
+    subparsers.add_parser(
+        "dirty",
+        parents=[shared],
+        help="List repos with uncommitted changes",
+    )
+
+    # remote command
+    subparsers.add_parser(
+        "remote",
+        parents=[shared],
+        help="List repos that have a remote configured",
+    )
+
+    # no-remote command
+    subparsers.add_parser(
+        "no-remote",
+        parents=[shared],
+        help="List repos without any remote configured",
+    )
+
+    # status command
+    subparsers.add_parser(
+        "status",
+        parents=[shared],
+        help="Show status: branch, ahead/behind, dirty state",
+    )
+
+    # Reorder help sections: commands before options
+    for i, group in enumerate(parser._action_groups):
+        if group.title == "commands":
+            parser._action_groups.insert(0, parser._action_groups.pop(i))
+            break
+
+    # Print usage if no arguments provided
+    if not argv:
+        parser.print_help()
+        return 0
+
+    args = parser.parse_args(argv)
+
+    if args.command is None:
+        parser.print_help()
+        return 0
+
+    return _run_command(args)
 
 
 if __name__ == "__main__":
