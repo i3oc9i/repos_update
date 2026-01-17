@@ -17,6 +17,7 @@ repos-update ~/Code -j 8               # Update 8 repos in parallel
 repos-update ~/Code --dry-run          # Preview what would be updated
 repos-update dirty ~/Code              # List repos with uncommitted changes
 repos-update status ~/Code             # Show branch, ahead/behind, dirty state
+repos-update age ~/Code                # Show last commit age (color-coded)
 repos-update remote ~/Code             # List repos with remotes configured
 repos-update no-remote ~/Code          # List repos without any remote
 ```
@@ -28,6 +29,7 @@ repos-update no-remote ~/Code          # List repos without any remote
 | `update` | Update repositories (default) |
 | `dirty` | List repos with uncommitted changes |
 | `status` | Show branch, ahead/behind, dirty state |
+| `age` | Show last commit age (green: <1mo, yellow: <3mo, orange: <6mo, red: >6mo) |
 | `remote` | List repos with a remote configured |
 | `no-remote` | List repos without any remote |
 
@@ -39,6 +41,22 @@ repos-update no-remote ~/Code          # List repos without any remote
 | `--dry-run` | Show what would be updated without pulling (update only) |
 | `-q`, `--quiet` | Quiet mode - only show summary |
 | `--full-path` | Show full absolute paths instead of relative |
+
+### Age Command Filters
+
+Filter repos by age category (can be combined):
+
+| Option | Category | Threshold |
+|--------|----------|-----------|
+| `--recent` | Green | ≤30 days |
+| `--aging` | Yellow | 31-90 days |
+| `--stale` | Orange | 91-180 days |
+| `--old` | Red | >180 days |
+
+```bash
+repos-update age ~/Code --stale --old    # Show only stale and old repos
+repos-update age ~/Code --recent         # Show only recently updated repos
+```
 
 ## Output Example
 

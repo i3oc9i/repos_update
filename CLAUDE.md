@@ -20,6 +20,8 @@ uv run repos-update ~/Code                  # Update repos (default command)
 uv run repos-update update ~/Code --dry-run # Show what would be updated
 uv run repos-update dirty ~/Code            # List repos with uncommitted changes
 uv run repos-update status ~/Code           # Show branch, ahead/behind, dirty state
+uv run repos-update age ~/Code              # Show last commit age (color-coded)
+uv run repos-update age ~/Code --stale --old # Filter by age category
 uv run repos-update remote ~/Code           # List repos that have a remote
 uv run repos-update no-remote ~/Code        # List repos without a remote
 
@@ -45,6 +47,10 @@ Single-file module: `repos_update.py`
 - `get_repo_status()` - Get branch, ahead/behind, dirty state
 - `show_status()` - Display status for all repos
 - `list_remotes()` - List repos that have remotes configured
+- `get_last_commit_age()` - Get last commit date and formatted age string
+- `get_age_color()` - Return color based on commit age thresholds
+- `get_age_category()` - Return age category name (recent, aging, stale, old)
+- `show_age()` - Display last commit age for all repos (supports category filtering)
 
 ## Important
 

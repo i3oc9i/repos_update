@@ -8,17 +8,19 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional
 
-__version__ = "0.1.0"
+__version__ = "1.1.0"
 
 
 class Color:
     """ANSI color codes."""
     GREEN = "\033[92m"
     YELLOW = "\033[93m"
+    ORANGE = "\033[38;5;208m"
     RED = "\033[91m"
     GRAY = "\033[90m"
     BOLD = "\033[1m"
@@ -272,6 +274,119 @@ def is_dirty(repo: Path) -> bool:
     return bool(result.stdout.strip())
 
 
+def get_last_commit_age(repo: Path) -> tuple[datetime | None, str]:
+    """Get the date of the last commit and formatted age string."""
+    result = run_git(repo, "log", "-1", "--format=%ci")
+    if result.returncode != 0 or not result.stdout.strip():
+        return None, "no commits"
+
+    # Parse the date (format: 2024-01-15 10:30:45 +0000)
+    date_str = result.stdout.strip()
+    try:
+        commit_date = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S %z")
+    except ValueError:
+        return None, "unknown"
+
+    now = datetime.now(timezone.utc)
+    delta = now - commit_date
+
+    # Format as human-readable age
+    days = delta.days
+    if days == 0:
+        hours = delta.seconds // 3600
+        if hours == 0:
+            minutes = delta.seconds // 60
+            if minutes == 0:
+                return commit_date, "just now"
+            return commit_date, f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+        return commit_date, f"{hours} hour{'s' if hours != 1 else ''} ago"
+    elif days == 1:
+        return commit_date, "1 day ago"
+    elif days < 30:
+        return commit_date, f"{days} days ago"
+    elif days < 60:
+        return commit_date, "1 month ago"
+    elif days < 365:
+        months = days // 30
+        return commit_date, f"{months} months ago"
+    elif days < 730:
+        return commit_date, "1 year ago"
+    else:
+        years = days // 365
+        return commit_date, f"{years} years ago"
+
+
+def get_age_color(commit_date: datetime | None) -> str:
+    """Return appropriate color based on commit age."""
+    if commit_date is None:
+        return Color.GRAY
+
+    now = datetime.now(timezone.utc)
+    delta = now - commit_date
+    days = delta.days
+
+    if days <= 30:  # Within 1 month
+        return Color.GREEN
+    elif days <= 90:  # Within 3 months
+        return Color.YELLOW
+    elif days <= 180:  # Within 6 months
+        return Color.ORANGE
+    else:  # Over 6 months
+        return Color.RED
+
+
+def get_age_category(commit_date: datetime | None) -> str:
+    """Return age category name based on commit date."""
+    if commit_date is None:
+        return "unknown"
+
+    now = datetime.now(timezone.utc)
+    delta = now - commit_date
+    days = delta.days
+
+    if days <= 30:  # Within 1 month
+        return "recent"
+    elif days <= 90:  # Within 3 months
+        return "aging"
+    elif days <= 180:  # Within 6 months
+        return "stale"
+    else:  # Over 6 months
+        return "old"
+
+
+def _get_age_with_path(repo: Path) -> tuple[Path, datetime | None, str]:
+    """Get age info for a repo along with its path."""
+    commit_date, age_str = get_last_commit_age(repo)
+    return (repo, commit_date, age_str)
+
+
+def show_age(repos: List[Path], jobs: int = 1, categories: set[str] | None = None) -> None:
+    """Display the age of the last commit for each repository.
+
+    Args:
+        repos: List of repository paths to check.
+        jobs: Number of parallel jobs.
+        categories: If provided, only show repos in these categories
+                   ("recent", "aging", "stale", "old").
+    """
+    if jobs > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            results = list(executor.map(_get_age_with_path, repos))
+    else:
+        results = [_get_age_with_path(repo) for repo in repos]
+
+    for repo, commit_date, age_str in results:
+        # Filter by category if specified
+        if categories:
+            category = get_age_category(commit_date)
+            if category not in categories:
+                continue
+
+        path_str = format_path(repo)
+        color = get_age_color(commit_date)
+        print(f"{color}●{Color.RESET} {path_str} {color}{age_str}{Color.RESET}")
+
+
 def check_updates_available(repo: Path) -> tuple[bool, str]:
     """Fetch and check if updates are available (for dry-run)."""
     # Fetch all remotes
@@ -440,7 +555,7 @@ def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
     print(f"Total: {len(results)} repositories")
 
 
-COMMANDS = {"update", "dirty", "status", "remote", "no-remote"}
+COMMANDS = {"update", "dirty", "status", "remote", "no-remote", "age"}
 
 
 def _run_command(args: argparse.Namespace) -> int:
@@ -497,6 +612,14 @@ def _run_command(args: argparse.Namespace) -> int:
 
     if command == "status":
         show_status(repos, jobs=jobs)
+        return 0
+
+    if command == "age":
+        categories = set()
+        for cat in ("recent", "aging", "stale", "old"):
+            if getattr(args, cat, False):
+                categories.add(cat)
+        show_age(repos, jobs=jobs, categories=categories or None)
         return 0
 
     # Default: update command
@@ -599,6 +722,33 @@ def main(argv: Optional[List[str]] = None) -> int:
         "status",
         parents=[shared],
         help="Show status: branch, ahead/behind, dirty state",
+    )
+
+    # age command
+    age_parser = subparsers.add_parser(
+        "age",
+        parents=[shared],
+        help="Show age of last commit for each repository",
+    )
+    age_parser.add_argument(
+        "--recent",
+        action="store_true",
+        help="Show repos updated within 1 month (green)",
+    )
+    age_parser.add_argument(
+        "--aging",
+        action="store_true",
+        help="Show repos updated 1-3 months ago (yellow)",
+    )
+    age_parser.add_argument(
+        "--stale",
+        action="store_true",
+        help="Show repos updated 3-6 months ago (orange)",
+    )
+    age_parser.add_argument(
+        "--old",
+        action="store_true",
+        help="Show repos not updated in 6+ months (red)",
     )
 
     # Reorder help sections: commands before options
