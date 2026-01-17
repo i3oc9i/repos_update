@@ -31,5 +31,6 @@ repos-update = "repos_update:main"
 dev = ["poethepoet"]
 
 [tool.poe.tasks]
+install = "uv tool install ."
 clean = "rm -rf dist/ __pycache__/ *.egg-info/"
 build = "uv build"

@@ -5,7 +5,14 @@ A command-line tool to recursively scan directories and update all git repositor
 ## Installation
 
 ```bash
-uv pip install -e .
+# Install globally as CLI tool
+uv tool install .
+
+# Upgrade after making changes
+uv tool upgrade repos-update
+
+# Or force reinstall (alternative to upgrade)
+uv tool install . --force
 ```
 
 ## Usage
