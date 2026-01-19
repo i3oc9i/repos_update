@@ -34,6 +34,7 @@ uv run repos-update no-remote ~/Code        # List repos without a remote
 
 # Global options (all commands)
 -j N, --jobs N                              # Process N repos in parallel
+-t N, --tree N                              # Limit search depth to N levels
 --full-path                                 # Show absolute paths
 -q, --quiet                                 # Quiet mode
 ```

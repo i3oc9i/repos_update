@@ -45,6 +45,7 @@ repos-update no-remote ~/Code          # List repos without any remote
 | Option | Description |
 |--------|-------------|
 | `-j N`, `--jobs N` | Process N repos in parallel (default: 1) |
+| `-t N`, `--tree N` | Limit search depth to N levels (1 = immediate subdirs only) |
 | `--dry-run` | Show what would be updated without pulling (update only) |
 | `-q`, `--quiet` | Quiet mode - only show summary |
 | `--full-path` | Show full absolute paths instead of relative |

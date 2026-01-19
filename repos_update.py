@@ -10,10 +10,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from importlib.metadata import version
 from pathlib import Path
 from typing import List, Optional
 
-__version__ = "1.1.0"
+__version__ = version("repos-update")
 
 
 class Color:
@@ -73,18 +74,29 @@ class RepoResult:
     changes: str = ""  # Change hints (e.g., "3 commits" or commit subject)
 
 
-def find_repos(directories: List[Path]) -> List[Path]:
-    """Find all git repositories in the given directories."""
+def find_repos(directories: List[Path], max_depth: int | None = None) -> List[Path]:
+    """Find all git repositories in the given directories.
+
+    Args:
+        directories: List of directories to scan.
+        max_depth: Maximum depth to search. None means unlimited.
+                   Depth 1 = immediate subdirectories only.
+    """
     repos = []
     for directory in directories:
         directory = directory.resolve()
         if not directory.exists():
             continue
+        base_depth = len(directory.parts)
         for root, dirs, _ in os.walk(directory):
+            current_depth = len(Path(root).parts) - base_depth
             if ".git" in dirs:
                 repos.append(Path(root))
                 dirs.remove(".git")  # Don't descend into .git
                 dirs[:] = [d for d in dirs if not d.startswith(".")]  # Skip hidden dirs
+            # Prune dirs if we've reached max depth
+            if max_depth is not None and current_depth >= max_depth:
+                dirs[:] = []
     return repos
 
 
@@ -570,7 +582,7 @@ def _run_command(args: argparse.Namespace) -> int:
     if not quiet:
         print(f"{Color.BOLD}Scanning for git repositories...{Color.RESET}")
 
-    repos = find_repos(directories)
+    repos = find_repos(directories, args.tree)
 
     if not repos:
         print("No git repositories found.")
@@ -637,14 +649,39 @@ def _run_command(args: argparse.Namespace) -> int:
     return 1 if errors else 0
 
 
+def _looks_like_path(arg: str) -> bool:
+    """Check if argument looks like a path (not a command typo)."""
+    # Starts with path-like prefix
+    if arg.startswith(("/", "~", ".", "..")):
+        return True
+    # Contains path separator
+    if "/" in arg or "\\" in arg:
+        return True
+    # Actually exists as a directory
+    path = Path(arg).expanduser()
+    if path.is_dir():
+        return True
+    return False
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Main entry point."""
     if argv is None:
         argv = sys.argv[1:]
 
-    # Insert 'update' command if no command specified
+    # Check for unknown command before setting up parser
+    unknown_command = None
     if argv and argv[0] not in COMMANDS and argv[0] not in ("-h", "--help", "--version"):
-        argv = ["update"] + list(argv)
+        if argv[0].startswith("-"):
+            # It's an option, let argparse handle it
+            argv = ["update"] + list(argv)
+        elif _looks_like_path(argv[0]):
+            # It's a path, use implicit update command
+            argv = ["update"] + list(argv)
+        else:
+            # Unknown command - save it and show help + error later
+            unknown_command = argv[0]
+            argv = []  # Clear to trigger help display
 
     parser = argparse.ArgumentParser(
         prog="repos-update",
@@ -682,6 +719,23 @@ def main(argv: Optional[List[str]] = None) -> int:
         "-q", "--quiet",
         action="store_true",
         help="Quiet mode - only show summary",
+    )
+    def positive_int(value: str) -> int:
+        """Validate that value is a positive integer (>= 1)."""
+        try:
+            ivalue = int(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"invalid int value: '{value}'")
+        if ivalue < 1:
+            raise argparse.ArgumentTypeError(f"must be >= 1, got {ivalue}")
+        return ivalue
+
+    shared.add_argument(
+        "-t", "--tree",
+        type=positive_int,
+        default=None,
+        metavar="N",
+        help="Limit search depth to N levels (1 = immediate subdirs only)",
     )
 
     # update command
@@ -757,9 +811,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             parser._action_groups.insert(0, parser._action_groups.pop(i))
             break
 
-    # Print usage if no arguments provided
+    # Print usage if no arguments provided (or unknown command)
     if not argv:
         parser.print_help()
+        if unknown_command:
+            print(f"\n{Color.RED}Error:{Color.RESET} Unknown command: {unknown_command}")
+            return 1
         return 0
 
     args = parser.parse_args(argv)
