@@ -139,7 +139,7 @@ def get_remote_url(repo: Path, remote: str = "origin") -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def _get_repo_remotes(repo: Path) -> tuple[Path, dict]:
+def _get_repo_remotes(repo: Path) -> tuple[Path, dict[str, str]]:
     """Get remotes for a single repo. Returns (repo, {}) if none configured."""
     result = run_git(repo, "remote", "-v")
     remotes: dict[str, str] = {}
@@ -151,14 +151,14 @@ def _get_repo_remotes(repo: Path) -> tuple[Path, dict]:
     return (repo, remotes)
 
 
-def collect_remote_buckets(
+def show_remotes(
     repos: List[Path],
     jobs: int = 1,
     show_with: bool = True,
     show_without: bool = True,
     quiet: bool = False,
-) -> tuple[list[tuple[Path, dict]], list[Path]]:
-    """Collect repos into with-remote and without-remote buckets.
+) -> tuple[list[tuple[Path, dict[str, str]]], list[Path]]:
+    """Show repos grouped by remote configuration (with-remote, no-remote).
 
     Live output prints whichever sections are selected by `show_with` /
     `show_without`, with the with-remote section first and a blank line
@@ -170,7 +170,7 @@ def collect_remote_buckets(
     else:
         results = [_get_repo_remotes(repo) for repo in repos]
 
-    with_remote: list[tuple[Path, dict]] = [
+    with_remote: list[tuple[Path, dict[str, str]]] = [
         (repo, remotes) for repo, remotes in results if remotes
     ]
     without_remote: list[Path] = [
@@ -198,7 +198,7 @@ def collect_remote_buckets(
 
 
 def print_remote_summary(
-    with_remote: list[tuple[Path, dict]],
+    with_remote: list[tuple[Path, dict[str, str]]],
     without_remote: list[Path],
     show_with: bool,
     show_without: bool,
@@ -791,12 +791,11 @@ def _run_command(args: argparse.Namespace) -> int:
         return 0
 
     if command == "remote":
-        show_with = getattr(args, "with_remote", False)
-        show_without = getattr(args, "without_remote", False)
-        # No flag set => show both buckets
-        if not show_with and not show_without:
+        show_with = args.with_remote
+        show_without = args.without_remote
+        if not (show_with or show_without):
             show_with = show_without = True
-        with_remote, without_remote = collect_remote_buckets(
+        with_remote, without_remote = show_remotes(
             repos,
             jobs=jobs,
             show_with=show_with,
