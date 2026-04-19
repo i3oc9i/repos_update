@@ -342,9 +342,9 @@ def get_age_color(commit_date: datetime | None) -> str:
     elif days <= 90:  # Within 3 months
         return Color.YELLOW
     elif days <= 180:  # Within 6 months
-        return Color.ORANGE
-    else:  # Over 6 months
         return Color.RED
+    else:  # Over 6 months
+        return Color.ORANGE
 
 
 def get_age_category(commit_date: datetime | None) -> str:

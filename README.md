@@ -36,7 +36,7 @@ repos-update no-remote ~/Code          # List repos without any remote
 | `update` | Update repositories (default) |
 | `dirty` | List repos with uncommitted changes |
 | `status` | Show branch, ahead/behind, dirty state |
-| `age` | Show last commit age (green: <1mo, yellow: <3mo, orange: <6mo, red: >6mo) |
+| `age` | Show last commit age (green: <1mo, yellow: <3mo, red: <6mo, orange: >6mo) |
 | `remote` | List repos with a remote configured |
 | `no-remote` | List repos without any remote |
 
@@ -58,8 +58,8 @@ Filter repos by age category (can be combined):
 |--------|----------|-----------|
 | `--recent` | Green | ≤30 days |
 | `--aging` | Yellow | 31-90 days |
-| `--stale` | Orange | 91-180 days |
-| `--old` | Red | >180 days |
+| `--stale` | Red | 91-180 days |
+| `--old` | Orange | >180 days |
 
 ```bash
 repos-update age ~/Code --stale --old    # Show only stale and old repos
