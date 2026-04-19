@@ -28,7 +28,7 @@ uv run repos-update update ~/Code --dry-run # Show what would be updated
 uv run repos-update dirty ~/Code            # List repos with uncommitted changes
 uv run repos-update status ~/Code           # Show branch, ahead/behind, dirty state
 uv run repos-update age ~/Code              # Show last commit age (color-coded)
-uv run repos-update age ~/Code --stale --old # Filter by age category
+uv run repos-update age ~/Code --stale --old --ancient # Filter by age category
 uv run repos-update remote ~/Code           # List repos that have a remote
 uv run repos-update no-remote ~/Code        # List repos without a remote
 

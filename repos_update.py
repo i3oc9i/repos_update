@@ -23,6 +23,7 @@ class Color:
     YELLOW = "\033[93m"
     ORANGE = "\033[38;5;208m"
     RED = "\033[91m"
+    MAGENTA = "\033[95m"
     GRAY = "\033[90m"
     BOLD = "\033[1m"
     RESET = "\033[0m"
@@ -442,9 +443,11 @@ def get_age_color(commit_date: datetime | None) -> str:
     elif days <= 90:  # Within 3 months
         return Color.YELLOW
     elif days <= 180:  # Within 6 months
-        return Color.RED
-    else:  # Over 6 months
         return Color.ORANGE
+    elif days <= 365:  # Within 1 year
+        return Color.RED
+    else:  # Over 1 year
+        return Color.MAGENTA
 
 
 def get_age_category(commit_date: datetime | None) -> str:
@@ -462,8 +465,10 @@ def get_age_category(commit_date: datetime | None) -> str:
         return "aging"
     elif days <= 180:  # Within 6 months
         return "stale"
-    else:  # Over 6 months
+    elif days <= 365:  # Within 1 year
         return "old"
+    else:  # Over 1 year
+        return "ancient"
 
 
 def _get_age_with_path(repo: Path) -> tuple[Path, datetime | None, str]:
@@ -517,7 +522,9 @@ def show_age(
 
 def print_age_summary(results: list[tuple[Path, datetime | None, str]]) -> None:
     """Print age summary with counts per category."""
-    buckets: dict[str, int] = {"recent": 0, "aging": 0, "stale": 0, "old": 0, "unknown": 0}
+    buckets: dict[str, int] = {
+        "recent": 0, "aging": 0, "stale": 0, "old": 0, "ancient": 0, "unknown": 0,
+    }
     for _, commit_date, _ in results:
         buckets[get_age_category(commit_date)] += 1
 
@@ -527,9 +534,11 @@ def print_age_summary(results: list[tuple[Path, datetime | None, str]]) -> None:
     if buckets["aging"]:
         print(f"{Color.YELLOW}● Aging (31-90 days):{Color.RESET} {buckets['aging']}")
     if buckets["stale"]:
-        print(f"{Color.RED}● Stale (91-180 days):{Color.RESET} {buckets['stale']}")
+        print(f"{Color.ORANGE}● Stale (91-180 days):{Color.RESET} {buckets['stale']}")
     if buckets["old"]:
-        print(f"{Color.ORANGE}● Old (>180 days):{Color.RESET} {buckets['old']}")
+        print(f"{Color.RED}● Old (181-365 days):{Color.RESET} {buckets['old']}")
+    if buckets["ancient"]:
+        print(f"{Color.MAGENTA}● Ancient (>1 year):{Color.RESET} {buckets['ancient']}")
     if buckets["unknown"]:
         print(f"{Color.GRAY}● Unknown:{Color.RESET} {buckets['unknown']}")
     _summary_end(len(results))
@@ -785,7 +794,7 @@ def _run_command(args: argparse.Namespace) -> int:
 
     if command == "age":
         categories = set()
-        for cat in ("recent", "aging", "stale", "old"):
+        for cat in ("recent", "aging", "stale", "old", "ancient"):
             if getattr(args, cat, False):
                 categories.add(cat)
         show_age(repos, jobs=jobs, categories=categories or None, quiet=quiet)
@@ -959,7 +968,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     age_parser.add_argument(
         "--old",
         action="store_true",
-        help="Show repos not updated in 6+ months (red)",
+        help="Show repos updated 6-12 months ago (red)",
+    )
+    age_parser.add_argument(
+        "--ancient",
+        action="store_true",
+        help="Show repos not updated in over 1 year (magenta)",
     )
 
     # Reorder help sections: commands before options
