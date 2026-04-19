@@ -142,10 +142,10 @@ def list_remotes(repos: List[Path], jobs: int = 1) -> None:
     else:
         results = [_get_repo_remotes(repo) for repo in repos]
 
-    for item in results:
-        if item is None:
-            continue
-        repo, remotes = item
+    items = [item for item in results if item is not None]
+    items.sort(key=lambda item: item[0].name.lower())
+
+    for repo, remotes in items:
         path_str = format_path(repo)
         remote_str = ", ".join(f"{k}: {v}" for k, v in remotes.items())
         print(f"{Color.GREEN}●{Color.RESET} {path_str}")
@@ -474,12 +474,12 @@ def check_dirty_repos(repos: List[Path], jobs: int = 1, quiet: bool = False) -> 
     else:
         all_results = [_check_dirty(repo) for repo in repos]
 
-    results = []
-    for item in all_results:
-        if item is not None:
-            results.append(item)
-            if not quiet:
-                print(f"{Color.GREEN}●{Color.RESET} {format_path(item.path)} ({item.branch}) {Color.YELLOW}✗ dirty{Color.RESET}")
+    results = [item for item in all_results if item is not None]
+    results.sort(key=lambda r: r.path.name.lower())
+
+    if not quiet:
+        for item in results:
+            print(f"{Color.GREEN}●{Color.RESET} {format_path(item.path)} ({item.branch}) {Color.YELLOW}✗ dirty{Color.RESET}")
     return results
 
 
@@ -620,6 +620,7 @@ def _run_command(args: argparse.Namespace) -> int:
             has_remote_results = [has_remote(r) for r in repos]
 
         no_remote_repos = [r for r, has_rem in zip(repos, has_remote_results) if not has_rem]
+        no_remote_repos.sort(key=lambda r: r.name.lower())
         if no_remote_repos:
             for repo in no_remote_repos:
                 print(f"{Color.GRAY}○{Color.RESET} {format_path(repo)}")
