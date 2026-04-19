@@ -55,20 +55,14 @@ The blank line between sections is intentional — it makes the bucket boundary 
 
 ### Summary
 
-Mirrors the `status`/`age` summary structure. Shows whichever buckets are non-empty:
+Counts only — no repo lists. Mirrors the `age` summary structure (the per-repo information is already in the live output above; the summary's job is the at-a-glance count). Shows whichever buckets are non-empty:
 
 ```
 ══════════════════════════════════════════════════
 Summary:
 ──────────────────────────────────────────────────
 ● With remote: 12
-  Code/project-a
-  Code/project-b
-  ...
 ○ No remote: 3
-  Code/local-experiment
-  Code/scratch
-  ...
 ──────────────────────────────────────────────────
 Total: 15 repositories
 ```
