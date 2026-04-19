@@ -52,6 +52,8 @@ repos-update no-remote ~/Code          # List repos without any remote
 
 ### Age Command Filters
 
+Results are always sorted from most recent to oldest, regardless of filters.
+
 Filter repos by age category (can be combined):
 
 | Option | Category | Threshold |

@@ -387,6 +387,12 @@ def show_age(repos: List[Path], jobs: int = 1, categories: set[str] | None = Non
     else:
         results = [_get_age_with_path(repo) for repo in repos]
 
+    # Sort most recent first; repos with no commit date go last
+    results.sort(
+        key=lambda r: r[1] or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+
     for repo, commit_date, age_str in results:
         # Filter by category if specified
         if categories:
