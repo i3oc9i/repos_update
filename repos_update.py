@@ -139,49 +139,83 @@ def get_remote_url(repo: Path, remote: str = "origin") -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def _get_repo_remotes(repo: Path) -> Optional[tuple[Path, dict]]:
-    """Get remotes for a single repo. Returns None if no remotes."""
+def _get_repo_remotes(repo: Path) -> tuple[Path, dict]:
+    """Get remotes for a single repo. Returns (repo, {}) if none configured."""
     result = run_git(repo, "remote", "-v")
-    remotes = {}
+    remotes: dict[str, str] = {}
     for line in result.stdout.strip().split("\n"):
         if line and "(fetch)" in line:
             parts = line.split()
             if len(parts) >= 2:
                 remotes[parts[0]] = parts[1]
-    return (repo, remotes) if remotes else None
+    return (repo, remotes)
 
 
-def list_remotes(repos: List[Path], jobs: int = 1, quiet: bool = False) -> list:
-    """List repositories that have remotes configured."""
+def collect_remote_buckets(
+    repos: List[Path],
+    jobs: int = 1,
+    show_with: bool = True,
+    show_without: bool = True,
+    quiet: bool = False,
+) -> tuple[list[tuple[Path, dict]], list[Path]]:
+    """Collect repos into with-remote and without-remote buckets.
+
+    Live output prints whichever sections are selected by `show_with` /
+    `show_without`, with the with-remote section first and a blank line
+    separating the two when both are non-empty and both selected.
+    """
     if jobs > 1:
         with ThreadPoolExecutor(max_workers=jobs) as executor:
             results = list(executor.map(_get_repo_remotes, repos))
     else:
         results = [_get_repo_remotes(repo) for repo in repos]
 
-    items = [item for item in results if item is not None]
-    items.sort(key=lambda item: item[0].name.lower())
+    with_remote: list[tuple[Path, dict]] = [
+        (repo, remotes) for repo, remotes in results if remotes
+    ]
+    without_remote: list[Path] = [
+        repo for repo, remotes in results if not remotes
+    ]
+    with_remote.sort(key=lambda item: item[0].name.lower())
+    without_remote.sort(key=lambda r: r.name.lower())
 
     if not quiet:
-        for repo, remotes in items:
-            path_str = format_path(repo)
-            remote_str = ", ".join(f"{k}: {v}" for k, v in remotes.items())
-            print(f"{Color.GREEN}●{Color.RESET} {path_str}")
-            print(f"  {Color.GRAY}{remote_str}{Color.RESET}")
-    return items
+        printed_with = False
+        if show_with:
+            for repo, remotes in with_remote:
+                path_str = format_path(repo)
+                remote_str = ", ".join(f"{k}: {v}" for k, v in remotes.items())
+                print(f"{Color.GREEN}●{Color.RESET} {path_str}")
+                print(f"  {Color.GRAY}{remote_str}{Color.RESET}")
+            printed_with = bool(with_remote)
+        if show_without and without_remote:
+            if printed_with:
+                print()
+            for repo in without_remote:
+                print(f"{Color.GRAY}○{Color.RESET} {format_path(repo)}")
+
+    return with_remote, without_remote
 
 
-def print_remote_summary(items: list, total: int) -> None:
-    """Print summary for the remote command."""
+def print_remote_summary(
+    with_remote: list[tuple[Path, dict]],
+    without_remote: list[Path],
+    show_with: bool,
+    show_without: bool,
+) -> None:
+    """Print counts-only summary for the remote command.
+
+    Only buckets selected by the filter flags are shown; `Total:` reflects
+    the included buckets so it stays consistent with the live output.
+    """
     _summary_start()
-    with_remote = len(items)
-    no_remote = total - with_remote
-    if with_remote:
-        print(f"{Color.GREEN}● With remote:{Color.RESET} {with_remote}")
-        for repo, _ in items:
-            print(f"  {format_path(repo)}")
-    if no_remote:
-        print(f"{Color.GRAY}○ No remote:{Color.RESET} {no_remote}")
+    total = 0
+    if show_with and with_remote:
+        print(f"{Color.GREEN}● With remote:{Color.RESET} {len(with_remote)}")
+        total += len(with_remote)
+    if show_without and without_remote:
+        print(f"{Color.GRAY}○ No remote:{Color.RESET} {len(without_remote)}")
+        total += len(without_remote)
     _summary_end(total)
 
 
@@ -634,18 +668,6 @@ def print_dirty_summary(results: List[RepoResult], total: int) -> None:
     _summary_end(total)
 
 
-def print_no_remote_summary(no_remote_repos: List[Path], total: int) -> None:
-    """Print summary for the no-remote command."""
-    _summary_start()
-    if no_remote_repos:
-        print(f"{Color.GRAY}○ No remote:{Color.RESET} {len(no_remote_repos)}")
-        for repo in no_remote_repos:
-            print(f"  {format_path(repo)}")
-    else:
-        print(f"{Color.GREEN}✓ All repositories have remotes configured.{Color.RESET}")
-    _summary_end(total)
-
-
 def update_repos_parallel(
     repos: List[Path],
     jobs: int,
@@ -736,7 +758,7 @@ def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
     _summary_end(len(results))
 
 
-COMMANDS = {"update", "dirty", "status", "remote", "no-remote", "age"}
+COMMANDS = {"update", "dirty", "status", "remote", "age"}
 
 
 def _run_command(args: argparse.Namespace) -> int:
@@ -769,23 +791,19 @@ def _run_command(args: argparse.Namespace) -> int:
         return 0
 
     if command == "remote":
-        items = list_remotes(repos, jobs=jobs, quiet=quiet)
-        print_remote_summary(items, total=len(repos))
-        return 0
-
-    if command == "no-remote":
-        if jobs > 1:
-            with ThreadPoolExecutor(max_workers=jobs) as executor:
-                has_remote_results = list(executor.map(has_remote, repos))
-        else:
-            has_remote_results = [has_remote(r) for r in repos]
-
-        no_remote_repos = [r for r, has_rem in zip(repos, has_remote_results) if not has_rem]
-        no_remote_repos.sort(key=lambda r: r.name.lower())
-        if not quiet:
-            for repo in no_remote_repos:
-                print(f"{Color.GRAY}○{Color.RESET} {format_path(repo)}")
-        print_no_remote_summary(no_remote_repos, total=len(repos))
+        show_with = getattr(args, "with_remote", False)
+        show_without = getattr(args, "without_remote", False)
+        # No flag set => show both buckets
+        if not show_with and not show_without:
+            show_with = show_without = True
+        with_remote, without_remote = collect_remote_buckets(
+            repos,
+            jobs=jobs,
+            show_with=show_with,
+            show_without=show_without,
+            quiet=quiet,
+        )
+        print_remote_summary(with_remote, without_remote, show_with, show_without)
         return 0
 
     if command == "status":
@@ -924,17 +942,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     # remote command
-    subparsers.add_parser(
+    remote_parser = subparsers.add_parser(
         "remote",
         parents=[shared],
-        help="List repos that have a remote configured",
+        help="List repos by remote configuration (with/without remotes)",
     )
-
-    # no-remote command
-    subparsers.add_parser(
-        "no-remote",
-        parents=[shared],
-        help="List repos without any remote configured",
+    remote_parser.add_argument(
+        "--with-remote",
+        action="store_true",
+        help="Show only repos that have a remote configured",
+    )
+    remote_parser.add_argument(
+        "--without-remote",
+        action="store_true",
+        help="Show only repos without any remote configured",
     )
 
     # status command

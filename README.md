@@ -25,8 +25,8 @@ repos-update ~/Code --dry-run          # Preview what would be updated
 repos-update dirty ~/Code              # List repos with uncommitted changes
 repos-update status ~/Code             # Show branch, ahead/behind, dirty state
 repos-update age ~/Code                # Show last commit age (color-coded)
-repos-update remote ~/Code             # List repos with remotes configured
-repos-update no-remote ~/Code          # List repos without any remote
+repos-update remote ~/Code             # List repos by remote configuration (both buckets)
+repos-update remote ~/Code --without-remote   # Only repos without a remote
 ```
 
 ## Commands
@@ -37,8 +37,7 @@ repos-update no-remote ~/Code          # List repos without any remote
 | `dirty` | List repos with uncommitted changes |
 | `status` | Show branch, ahead/behind, dirty state |
 | `age` | Show last commit age (green: ≤1mo, yellow: ≤3mo, orange: ≤6mo, red: ≤1yr, magenta: >1yr) |
-| `remote` | List repos with a remote configured |
-| `no-remote` | List repos without any remote |
+| `remote` | List repos by remote configuration; `--with-remote` / `--without-remote` filter to one bucket |
 
 ## Options
 
@@ -56,7 +55,8 @@ Every command prints a sorted summary block at the end:
 
 - `update` — grouped by updated / up-to-date / no-remote / dirty / errors, names sorted alphabetically within each group
 - `status` — live output streams unsorted (for progress feedback during `git fetch`); summary groups repos by state (clean / ahead / behind / diverged / dirty / no-remote), sorted alphabetically within each group
-- `dirty`, `remote`, `no-remote` — live output sorted alphabetically; summary restates counts and names
+- `dirty` — live output sorted alphabetically; summary restates counts and names
+- `remote` — live output groups with-remote (with URLs) above no-remote, each sorted alphabetically; summary shows counts per bucket
 - `age` — live output sorted most recent to oldest; summary shows counts per category (recent / aging / stale / old)
 
 ### Age Command Filters
@@ -76,6 +76,20 @@ Filter repos by age category (can be combined):
 ```bash
 repos-update age ~/Code --stale --old    # Show only stale and old repos
 repos-update age ~/Code --recent         # Show only recently updated repos
+```
+
+### Remote Command Filters
+
+With no flags, both buckets are shown. Flags can be combined; combining both is equivalent to passing neither.
+
+| Option | Bucket |
+|--------|--------|
+| `--with-remote` | Repos that have at least one remote configured |
+| `--without-remote` | Repos with no remotes configured |
+
+```bash
+repos-update remote ~/Code --with-remote      # Only repos with remotes
+repos-update remote ~/Code --without-remote   # Only repos without remotes
 ```
 
 ## Output Example
