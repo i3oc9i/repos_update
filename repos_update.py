@@ -55,6 +55,22 @@ def format_path(path: Path) -> str:
     return str(path)
 
 
+_SUMMARY_WIDTH = 50
+
+
+def _summary_start(title: str = "Summary:") -> None:
+    """Print summary section opener."""
+    print(f"\n{Color.BOLD}{'═' * _SUMMARY_WIDTH}{Color.RESET}")
+    print(f"{Color.BOLD}{title}{Color.RESET}")
+    print(f"{'─' * _SUMMARY_WIDTH}")
+
+
+def _summary_end(total: int) -> None:
+    """Print summary section closer."""
+    print(f"{'─' * _SUMMARY_WIDTH}")
+    print(f"Total: {total} repositories")
+
+
 class Status(Enum):
     """Repository update status."""
     UPDATED = "updated"
@@ -134,7 +150,7 @@ def _get_repo_remotes(repo: Path) -> Optional[tuple[Path, dict]]:
     return (repo, remotes) if remotes else None
 
 
-def list_remotes(repos: List[Path], jobs: int = 1) -> None:
+def list_remotes(repos: List[Path], jobs: int = 1, quiet: bool = False) -> list:
     """List repositories that have remotes configured."""
     if jobs > 1:
         with ThreadPoolExecutor(max_workers=jobs) as executor:
@@ -145,11 +161,27 @@ def list_remotes(repos: List[Path], jobs: int = 1) -> None:
     items = [item for item in results if item is not None]
     items.sort(key=lambda item: item[0].name.lower())
 
-    for repo, remotes in items:
-        path_str = format_path(repo)
-        remote_str = ", ".join(f"{k}: {v}" for k, v in remotes.items())
-        print(f"{Color.GREEN}●{Color.RESET} {path_str}")
-        print(f"  {Color.GRAY}{remote_str}{Color.RESET}")
+    if not quiet:
+        for repo, remotes in items:
+            path_str = format_path(repo)
+            remote_str = ", ".join(f"{k}: {v}" for k, v in remotes.items())
+            print(f"{Color.GREEN}●{Color.RESET} {path_str}")
+            print(f"  {Color.GRAY}{remote_str}{Color.RESET}")
+    return items
+
+
+def print_remote_summary(items: list, total: int) -> None:
+    """Print summary for the remote command."""
+    _summary_start()
+    with_remote = len(items)
+    no_remote = total - with_remote
+    if with_remote:
+        print(f"{Color.GREEN}● With remote:{Color.RESET} {with_remote}")
+        for repo, _ in items:
+            print(f"  {format_path(repo)}")
+    if no_remote:
+        print(f"{Color.GRAY}○ No remote:{Color.RESET} {no_remote}")
+    _summary_end(total)
 
 
 def get_repo_status(repo: Path) -> dict:
@@ -183,37 +215,105 @@ def _get_status_with_path(repo: Path) -> tuple[Path, dict]:
     return (repo, get_repo_status(repo))
 
 
-def show_status(repos: List[Path], jobs: int = 1) -> None:
-    """Show status summary for all repositories."""
+def _format_status_line(repo: Path, status: dict) -> str:
+    """Format one repo's status as a display line."""
+    path_str = format_path(repo)
+    branch = status["branch"]
+
+    if not status["has_remote"]:
+        return f"{Color.GRAY}○{Color.RESET} {path_str} ({branch}) {Color.GRAY}no remote{Color.RESET}"
+
+    indicators = []
+    if status["ahead"] > 0:
+        indicators.append(f"{Color.GREEN}↑{status['ahead']}{Color.RESET}")
+    if status["behind"] > 0:
+        indicators.append(f"{Color.RED}↓{status['behind']}{Color.RESET}")
+    if status["dirty"]:
+        indicators.append(f"{Color.YELLOW}✗ dirty{Color.RESET}")
+    if not indicators:
+        indicators.append(f"{Color.GREEN}✓{Color.RESET}")
+
+    return f"{Color.GREEN}●{Color.RESET} {path_str} ({branch}) {' '.join(indicators)}"
+
+
+def _classify_status(status: dict) -> str:
+    """Classify a repo status into a single bucket."""
+    if not status["has_remote"]:
+        return "no_remote"
+    if status["dirty"]:
+        return "dirty"
+    if status["ahead"] > 0 and status["behind"] > 0:
+        return "diverged"
+    if status["ahead"] > 0:
+        return "ahead"
+    if status["behind"] > 0:
+        return "behind"
+    return "clean"
+
+
+def show_status(repos: List[Path], jobs: int = 1, quiet: bool = False) -> None:
+    """Show status summary for all repositories.
+
+    Live output streams as each repo completes (unsorted) so the user gets
+    progress feedback during network-bound `git fetch`. A sorted summary is
+    printed at the end.
+    """
+    results: list[tuple[Path, dict]] = []
+
     if jobs > 1:
         with ThreadPoolExecutor(max_workers=jobs) as executor:
-            results = list(executor.map(_get_status_with_path, repos))
+            futures = {executor.submit(_get_status_with_path, repo): repo for repo in repos}
+            for future in as_completed(futures):
+                result = future.result()
+                results.append(result)
+                if not quiet:
+                    print(_format_status_line(*result))
     else:
-        results = [(repo, get_repo_status(repo)) for repo in repos]
+        for repo in repos:
+            result = _get_status_with_path(repo)
+            results.append(result)
+            if not quiet:
+                print(_format_status_line(*result))
 
-    for repo, status in results:
-        path_str = format_path(repo)
-        branch = status["branch"]
+    print_status_summary(results)
 
-        # Build status indicators
-        indicators = []
 
-        if not status["has_remote"]:
-            print(f"{Color.GRAY}○{Color.RESET} {path_str} ({branch}) {Color.GRAY}no remote{Color.RESET}")
-            continue
+def print_status_summary(results: list[tuple[Path, dict]]) -> None:
+    """Print status summary grouped by state, sorted alphabetically."""
+    buckets: dict[str, list[tuple[Path, dict]]] = {
+        "clean": [], "ahead": [], "behind": [], "diverged": [], "dirty": [], "no_remote": [],
+    }
+    for item in results:
+        buckets[_classify_status(item[1])].append(item)
+    for key in buckets:
+        buckets[key].sort(key=lambda x: x[0].name.lower())
 
-        if status["ahead"] > 0:
-            indicators.append(f"{Color.GREEN}↑{status['ahead']}{Color.RESET}")
-        if status["behind"] > 0:
-            indicators.append(f"{Color.RED}↓{status['behind']}{Color.RESET}")
-        if status["dirty"]:
-            indicators.append(f"{Color.YELLOW}✗ dirty{Color.RESET}")
+    _summary_start()
 
-        if not indicators and status["ahead"] == 0 and status["behind"] == 0:
-            indicators.append(f"{Color.GREEN}✓{Color.RESET}")
+    if buckets["clean"]:
+        print(f"{Color.GREEN}✓ Clean:{Color.RESET} {len(buckets['clean'])}")
+    if buckets["ahead"]:
+        print(f"{Color.GREEN}↑ Ahead:{Color.RESET} {len(buckets['ahead'])}")
+        for repo, s in buckets["ahead"]:
+            print(f"  {format_path(repo)} ({s['branch']}) ↑{s['ahead']}")
+    if buckets["behind"]:
+        print(f"{Color.RED}↓ Behind:{Color.RESET} {len(buckets['behind'])}")
+        for repo, s in buckets["behind"]:
+            print(f"  {format_path(repo)} ({s['branch']}) ↓{s['behind']}")
+    if buckets["diverged"]:
+        print(f"{Color.RED}⇅ Diverged:{Color.RESET} {len(buckets['diverged'])}")
+        for repo, s in buckets["diverged"]:
+            print(f"  {format_path(repo)} ({s['branch']}) ↑{s['ahead']} ↓{s['behind']}")
+    if buckets["dirty"]:
+        print(f"{Color.YELLOW}✗ Dirty:{Color.RESET} {len(buckets['dirty'])}")
+        for repo, s in buckets["dirty"]:
+            print(f"  {format_path(repo)} ({s['branch']})")
+    if buckets["no_remote"]:
+        print(f"{Color.GRAY}○ No remote:{Color.RESET} {len(buckets['no_remote'])}")
+        for repo, s in buckets["no_remote"]:
+            print(f"  {format_path(repo)} ({s['branch']})")
 
-        status_str = " ".join(indicators)
-        print(f"{Color.GREEN}●{Color.RESET} {path_str} ({branch}) {status_str}")
+    _summary_end(len(results))
 
 
 def get_current_branch(repo: Path) -> str:
@@ -372,7 +472,12 @@ def _get_age_with_path(repo: Path) -> tuple[Path, datetime | None, str]:
     return (repo, commit_date, age_str)
 
 
-def show_age(repos: List[Path], jobs: int = 1, categories: set[str] | None = None) -> None:
+def show_age(
+    repos: List[Path],
+    jobs: int = 1,
+    categories: set[str] | None = None,
+    quiet: bool = False,
+) -> None:
     """Display the age of the last commit for each repository.
 
     Args:
@@ -380,6 +485,7 @@ def show_age(repos: List[Path], jobs: int = 1, categories: set[str] | None = Non
         jobs: Number of parallel jobs.
         categories: If provided, only show repos in these categories
                    ("recent", "aging", "stale", "old").
+        quiet: Suppress per-repo output (summary still prints).
     """
     if jobs > 1:
         with ThreadPoolExecutor(max_workers=jobs) as executor:
@@ -393,16 +499,40 @@ def show_age(repos: List[Path], jobs: int = 1, categories: set[str] | None = Non
         reverse=True,
     )
 
+    filtered = []
     for repo, commit_date, age_str in results:
-        # Filter by category if specified
         if categories:
             category = get_age_category(commit_date)
             if category not in categories:
                 continue
+        filtered.append((repo, commit_date, age_str))
 
-        path_str = format_path(repo)
-        color = get_age_color(commit_date)
-        print(f"{color}●{Color.RESET} {path_str} {color}{age_str}{Color.RESET}")
+        if not quiet:
+            path_str = format_path(repo)
+            color = get_age_color(commit_date)
+            print(f"{color}●{Color.RESET} {path_str} {color}{age_str}{Color.RESET}")
+
+    print_age_summary(filtered)
+
+
+def print_age_summary(results: list[tuple[Path, datetime | None, str]]) -> None:
+    """Print age summary with counts per category."""
+    buckets: dict[str, int] = {"recent": 0, "aging": 0, "stale": 0, "old": 0, "unknown": 0}
+    for _, commit_date, _ in results:
+        buckets[get_age_category(commit_date)] += 1
+
+    _summary_start()
+    if buckets["recent"]:
+        print(f"{Color.GREEN}● Recent (≤30 days):{Color.RESET} {buckets['recent']}")
+    if buckets["aging"]:
+        print(f"{Color.YELLOW}● Aging (31-90 days):{Color.RESET} {buckets['aging']}")
+    if buckets["stale"]:
+        print(f"{Color.RED}● Stale (91-180 days):{Color.RESET} {buckets['stale']}")
+    if buckets["old"]:
+        print(f"{Color.ORANGE}● Old (>180 days):{Color.RESET} {buckets['old']}")
+    if buckets["unknown"]:
+        print(f"{Color.GRAY}● Unknown:{Color.RESET} {buckets['unknown']}")
+    _summary_end(len(results))
 
 
 def check_updates_available(repo: Path) -> tuple[bool, str]:
@@ -483,6 +613,30 @@ def check_dirty_repos(repos: List[Path], jobs: int = 1, quiet: bool = False) -> 
     return results
 
 
+def print_dirty_summary(results: List[RepoResult], total: int) -> None:
+    """Print summary for the dirty command."""
+    _summary_start()
+    if results:
+        print(f"{Color.YELLOW}✗ Dirty:{Color.RESET} {len(results)}")
+        for r in results:
+            print(f"  {format_path(r.path)} ({r.branch})")
+    else:
+        print(f"{Color.GREEN}✓ All repositories are clean.{Color.RESET}")
+    _summary_end(total)
+
+
+def print_no_remote_summary(no_remote_repos: List[Path], total: int) -> None:
+    """Print summary for the no-remote command."""
+    _summary_start()
+    if no_remote_repos:
+        print(f"{Color.GRAY}○ No remote:{Color.RESET} {len(no_remote_repos)}")
+        for repo in no_remote_repos:
+            print(f"  {format_path(repo)}")
+    else:
+        print(f"{Color.GREEN}✓ All repositories have remotes configured.{Color.RESET}")
+    _summary_end(total)
+
+
 def update_repos_parallel(
     repos: List[Path],
     jobs: int,
@@ -532,16 +686,17 @@ def print_progress(result: RepoResult, dry_run: bool = False) -> None:
 
 def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
     """Print colored summary report."""
-    updated = [r for r in results if r.status == Status.UPDATED]
-    up_to_date = [r for r in results if r.status == Status.UP_TO_DATE]
-    errors = [r for r in results if r.status == Status.ERROR]
-    no_remote = [r for r in results if r.status == Status.NO_REMOTE]
-    dirty = [r for r in results if r.status == Status.DIRTY]
+    def by_name(rs: List[RepoResult]) -> List[RepoResult]:
+        return sorted(rs, key=lambda r: r.path.name.lower())
 
-    print(f"\n{Color.BOLD}{'═' * 50}{Color.RESET}")
+    updated = by_name([r for r in results if r.status == Status.UPDATED])
+    up_to_date = [r for r in results if r.status == Status.UP_TO_DATE]
+    errors = by_name([r for r in results if r.status == Status.ERROR])
+    no_remote = [r for r in results if r.status == Status.NO_REMOTE]
+    dirty = by_name([r for r in results if r.status == Status.DIRTY])
+
     prefix = "[DRY-RUN] " if dry_run else ""
-    print(f"{Color.BOLD}{prefix}Summary:{Color.RESET}")
-    print(f"{'─' * 50}")
+    _summary_start(f"{prefix}Summary:")
 
     if updated:
         action = "Would update" if dry_run else "Updated"
@@ -569,8 +724,7 @@ def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
                 for line in r.message.split("\n")[:3]:
                     print(f"    {Color.RED}{line}{Color.RESET}")
 
-    print(f"{'─' * 50}")
-    print(f"Total: {len(results)} repositories")
+    _summary_end(len(results))
 
 
 COMMANDS = {"update", "dirty", "status", "remote", "no-remote", "age"}
@@ -602,14 +756,12 @@ def _run_command(args: argparse.Namespace) -> int:
 
     if command == "dirty":
         results = check_dirty_repos(repos, jobs=jobs, quiet=quiet)
-        if not results:
-            print(f"{Color.GREEN}All repositories are clean.{Color.RESET}")
-        else:
-            print(f"\n{Color.YELLOW}{len(results)} dirty repositories found.{Color.RESET}")
+        print_dirty_summary(results, total=len(repos))
         return 0
 
     if command == "remote":
-        list_remotes(repos, jobs=jobs)
+        items = list_remotes(repos, jobs=jobs, quiet=quiet)
+        print_remote_summary(items, total=len(repos))
         return 0
 
     if command == "no-remote":
@@ -621,16 +773,14 @@ def _run_command(args: argparse.Namespace) -> int:
 
         no_remote_repos = [r for r, has_rem in zip(repos, has_remote_results) if not has_rem]
         no_remote_repos.sort(key=lambda r: r.name.lower())
-        if no_remote_repos:
+        if not quiet:
             for repo in no_remote_repos:
                 print(f"{Color.GRAY}○{Color.RESET} {format_path(repo)}")
-            print(f"\n{Color.GRAY}{len(no_remote_repos)} repos without remote.{Color.RESET}")
-        else:
-            print(f"{Color.GREEN}All repositories have remotes configured.{Color.RESET}")
+        print_no_remote_summary(no_remote_repos, total=len(repos))
         return 0
 
     if command == "status":
-        show_status(repos, jobs=jobs)
+        show_status(repos, jobs=jobs, quiet=quiet)
         return 0
 
     if command == "age":
@@ -638,7 +788,7 @@ def _run_command(args: argparse.Namespace) -> int:
         for cat in ("recent", "aging", "stale", "old"):
             if getattr(args, cat, False):
                 categories.add(cat)
-        show_age(repos, jobs=jobs, categories=categories or None)
+        show_age(repos, jobs=jobs, categories=categories or None, quiet=quiet)
         return 0
 
     # Default: update command

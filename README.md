@@ -47,8 +47,17 @@ repos-update no-remote ~/Code          # List repos without any remote
 | `-j N`, `--jobs N` | Process N repos in parallel (default: 1) |
 | `-t N`, `--tree N` | Limit search depth to N levels (1 = immediate subdirs only) |
 | `--dry-run` | Show what would be updated without pulling (update only) |
-| `-q`, `--quiet` | Quiet mode - only show summary |
+| `-q`, `--quiet` | Quiet mode - suppress per-repo output, show summary only |
 | `--full-path` | Show full absolute paths instead of relative |
+
+## Summary Output
+
+Every command prints a sorted summary block at the end:
+
+- `update` — grouped by updated / up-to-date / no-remote / dirty / errors, names sorted alphabetically within each group
+- `status` — live output streams unsorted (for progress feedback during `git fetch`); summary groups repos by state (clean / ahead / behind / diverged / dirty / no-remote), sorted alphabetically within each group
+- `dirty`, `remote`, `no-remote` — live output sorted alphabetically; summary restates counts and names
+- `age` — live output sorted most recent to oldest; summary shows counts per category (recent / aging / stale / old)
 
 ### Age Command Filters
 
