@@ -27,6 +27,7 @@ repos-update status ~/Code             # Show branch, ahead/behind, dirty state
 repos-update age ~/Code                # Show last commit age (color-coded)
 repos-update remote ~/Code             # List repos by remote configuration (both buckets)
 repos-update remote ~/Code --without-remote   # Only repos without a remote
+repos-update remote ~/Code --raw       # Print only origin URLs, sorted (pipe-friendly)
 ```
 
 ## Commands
@@ -37,7 +38,7 @@ repos-update remote ~/Code --without-remote   # Only repos without a remote
 | `dirty` | List repos with uncommitted changes |
 | `status` | Show branch, ahead/behind, dirty state |
 | `age` | Show last commit age (green: ≤1mo, yellow: ≤3mo, orange: ≤6mo, red: ≤1yr, magenta: >1yr) |
-| `remote` | List repos by remote configuration; `--with-remote` / `--without-remote` filter to one bucket |
+| `remote` | List repos by remote configuration; `--with-remote` / `--without-remote` filter to one bucket; `--raw` prints sorted origin URLs only |
 
 ## Options
 
@@ -86,10 +87,13 @@ With no flags, both buckets are shown. Flags can be combined; combining both is 
 |--------|--------|
 | `--with-remote` | Repos that have at least one remote configured |
 | `--without-remote` | Repos with no remotes configured |
+| `--raw` | Print only `origin` URLs, sorted alphabetically, one per line. Suppresses headers, colors, and summary. Repos without an `origin` remote are skipped. Cannot be combined with `--without-remote`. |
 
 ```bash
 repos-update remote ~/Code --with-remote      # Only repos with remotes
 repos-update remote ~/Code --without-remote   # Only repos without remotes
+repos-update remote ~/Code --raw              # Pure origin URLs, one per line
+repos-update remote ~/Code --raw | sort -u    # Dedupe origin URLs across repos
 ```
 
 ## Output Example

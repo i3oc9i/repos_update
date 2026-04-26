@@ -31,6 +31,7 @@ uv run repos-update age ~/Code              # Show last commit age (color-coded)
 uv run repos-update age ~/Code --stale --old --ancient # Filter by age category
 uv run repos-update remote ~/Code           # List repos by remote configuration (both buckets)
 uv run repos-update remote ~/Code --without-remote # Only repos without a remote
+uv run repos-update remote ~/Code --raw     # Print only origin URLs, sorted (pipe-friendly)
 
 # Global options (all commands)
 -j N, --jobs N                              # Process N repos in parallel
@@ -55,6 +56,7 @@ Single-file module: `repos_update.py`
 - `get_repo_status()` - Get branch, ahead/behind, dirty state
 - `show_status()` - Display status for all repos
 - `show_remotes()` - Display repos grouped by remote configuration, with optional bucket filtering
+- `show_remotes_raw()` - Print sorted origin URLs only (pipe-friendly), skipping repos without origin
 - `get_last_commit_age()` - Get last commit date and formatted age string
 - `get_age_color()` - Return color based on commit age thresholds
 - `get_age_category()` - Return age category name (recent, aging, stale, old)

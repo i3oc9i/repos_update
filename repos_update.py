@@ -197,6 +197,23 @@ def show_remotes(
     return with_remote, without_remote
 
 
+def show_remotes_raw(repos: List[Path], jobs: int = 1) -> None:
+    """Print sorted origin URLs, one per line. Skips repos without origin."""
+    if jobs > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            results = list(executor.map(_get_repo_remotes, repos))
+    else:
+        results = [_get_repo_remotes(repo) for repo in repos]
+
+    urls = sorted(
+        remotes["origin"]
+        for _, remotes in results
+        if "origin" in remotes
+    )
+    for url in urls:
+        print(url)
+
+
 def print_remote_summary(
     with_remote: list[tuple[Path, dict[str, str]]],
     without_remote: list[Path],
@@ -769,17 +786,19 @@ def _run_command(args: argparse.Namespace) -> int:
     set_path_display(directories, args.full_path)
 
     quiet = getattr(args, "quiet", False)
+    raw_remote = args.command == "remote" and getattr(args, "raw", False)
 
-    if not quiet:
+    if not quiet and not raw_remote:
         print(f"{Color.BOLD}Scanning for git repositories...{Color.RESET}")
 
     repos = find_repos(directories, args.tree)
 
     if not repos:
-        print("No git repositories found.")
+        if not raw_remote:
+            print("No git repositories found.")
         return 0
 
-    if not quiet:
+    if not quiet and not raw_remote:
         print(f"Found {len(repos)} repositories.\n")
 
     command = args.command
@@ -791,6 +810,16 @@ def _run_command(args: argparse.Namespace) -> int:
         return 0
 
     if command == "remote":
+        if args.raw:
+            if args.without_remote:
+                print(
+                    f"{Color.RED}Error:{Color.RESET} "
+                    "--raw cannot be combined with --without-remote",
+                    file=sys.stderr,
+                )
+                return 1
+            show_remotes_raw(repos, jobs=jobs)
+            return 0
         show_with = args.with_remote
         show_without = args.without_remote
         if not (show_with or show_without):
@@ -955,6 +984,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--without-remote",
         action="store_true",
         help="Show only repos without any remote configured",
+    )
+    remote_parser.add_argument(
+        "--raw",
+        action="store_true",
+        help="Print only origin URLs, sorted, one per line (pipe-friendly)",
     )
 
     # status command
