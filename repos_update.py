@@ -78,7 +78,6 @@ class Status(Enum):
     UP_TO_DATE = "up_to_date"
     ERROR = "error"
     NO_REMOTE = "no_remote"
-    DIRTY = "dirty"
 
 
 @dataclass
@@ -236,17 +235,20 @@ def print_remote_summary(
     _summary_end(total)
 
 
-def get_repo_status(repo: Path) -> dict:
-    """Get status info for a repository."""
+def get_repo_status(repo: Path, needs_fetch: bool = True) -> dict:
+    """Get status info for a repository.
+
+    When `needs_fetch` is False, skip the network calls (`git fetch` and the
+    `rev-list` ahead/behind query) — useful when only the local dirty state is
+    being inspected.
+    """
     branch = get_current_branch(repo)
     dirty = is_dirty(repo)
     has_rem = has_remote(repo)
     ahead = behind = 0
 
-    if has_rem:
-        # Fetch to get latest info
+    if has_rem and needs_fetch:
         run_git(repo, "fetch", "--quiet")
-        # Get ahead/behind counts
         result = run_git(repo, "rev-list", "--left-right", "--count", "@{u}...HEAD")
         if result.returncode == 0:
             parts = result.stdout.strip().split()
@@ -262,9 +264,9 @@ def get_repo_status(repo: Path) -> dict:
     }
 
 
-def _get_status_with_path(repo: Path) -> tuple[Path, dict]:
+def _get_status_with_path(repo: Path, needs_fetch: bool = True) -> tuple[Path, dict]:
     """Get status for a repo along with its path."""
-    return (repo, get_repo_status(repo))
+    return (repo, get_repo_status(repo, needs_fetch=needs_fetch))
 
 
 def _format_status_line(repo: Path, status: dict) -> str:
@@ -303,35 +305,61 @@ def _classify_status(status: dict) -> str:
     return "clean"
 
 
-def show_status(repos: List[Path], jobs: int = 1, quiet: bool = False) -> None:
+_NETWORK_CATEGORIES = frozenset({"clean", "ahead", "behind", "diverged"})
+
+
+def show_status(
+    repos: List[Path],
+    jobs: int = 1,
+    categories: set[str] | None = None,
+    quiet: bool = False,
+) -> None:
     """Show status summary for all repositories.
 
     Live output streams as each repo completes (unsorted) so the user gets
     progress feedback during network-bound `git fetch`. A sorted summary is
     printed at the end.
+
+    When `categories` is provided, only repos whose classification falls in the
+    set are shown. If none of the network-requiring categories is requested,
+    `git fetch` is skipped entirely (e.g. `--dirty` alone runs offline).
     """
+    needs_fetch = categories is None or bool(categories & _NETWORK_CATEGORIES)
+
     results: list[tuple[Path, dict]] = []
+
+    def _emit(result: tuple[Path, dict]) -> None:
+        results.append(result)
+        if quiet:
+            return
+        if categories is not None and _classify_status(result[1]) not in categories:
+            return
+        print(_format_status_line(*result))
 
     if jobs > 1:
         with ThreadPoolExecutor(max_workers=jobs) as executor:
-            futures = {executor.submit(_get_status_with_path, repo): repo for repo in repos}
+            futures = {
+                executor.submit(_get_status_with_path, repo, needs_fetch): repo
+                for repo in repos
+            }
             for future in as_completed(futures):
-                result = future.result()
-                results.append(result)
-                if not quiet:
-                    print(_format_status_line(*result))
+                _emit(future.result())
     else:
         for repo in repos:
-            result = _get_status_with_path(repo)
-            results.append(result)
-            if not quiet:
-                print(_format_status_line(*result))
+            _emit(_get_status_with_path(repo, needs_fetch))
 
-    print_status_summary(results)
+    print_status_summary(results, categories=categories)
 
 
-def print_status_summary(results: list[tuple[Path, dict]]) -> None:
-    """Print status summary grouped by state, sorted alphabetically."""
+def print_status_summary(
+    results: list[tuple[Path, dict]],
+    categories: set[str] | None = None,
+) -> None:
+    """Print status summary grouped by state, sorted alphabetically.
+
+    When `categories` is provided, only those buckets are shown and the total
+    counts only the matching repos.
+    """
     buckets: dict[str, list[tuple[Path, dict]]] = {
         "clean": [], "ahead": [], "behind": [], "diverged": [], "dirty": [], "no_remote": [],
     }
@@ -340,32 +368,53 @@ def print_status_summary(results: list[tuple[Path, dict]]) -> None:
     for key in buckets:
         buckets[key].sort(key=lambda x: x[0].name.lower())
 
+    def _show(bucket: str) -> bool:
+        return categories is None or bucket in categories
+
+    # When filters are active, the live output already lists the matching
+    # repos — print only the bucket counts to avoid duplicating that detail.
+    show_details = categories is None
+
     _summary_start()
 
-    if buckets["clean"]:
+    if _show("clean") and buckets["clean"]:
         print(f"{Color.GREEN}✓ Clean:{Color.RESET} {len(buckets['clean'])}")
-    if buckets["ahead"]:
+    if _show("ahead") and buckets["ahead"]:
         print(f"{Color.GREEN}↑ Ahead:{Color.RESET} {len(buckets['ahead'])}")
-        for repo, s in buckets["ahead"]:
-            print(f"  {format_path(repo)} ({s['branch']}) ↑{s['ahead']}")
-    if buckets["behind"]:
+        if show_details:
+            for repo, s in buckets["ahead"]:
+                print(f"  {format_path(repo)} ({s['branch']}) ↑{s['ahead']}")
+    if _show("behind") and buckets["behind"]:
         print(f"{Color.RED}↓ Behind:{Color.RESET} {len(buckets['behind'])}")
-        for repo, s in buckets["behind"]:
-            print(f"  {format_path(repo)} ({s['branch']}) ↓{s['behind']}")
-    if buckets["diverged"]:
+        if show_details:
+            for repo, s in buckets["behind"]:
+                print(f"  {format_path(repo)} ({s['branch']}) ↓{s['behind']}")
+    if _show("diverged") and buckets["diverged"]:
         print(f"{Color.RED}⇅ Diverged:{Color.RESET} {len(buckets['diverged'])}")
-        for repo, s in buckets["diverged"]:
-            print(f"  {format_path(repo)} ({s['branch']}) ↑{s['ahead']} ↓{s['behind']}")
-    if buckets["dirty"]:
+        if show_details:
+            for repo, s in buckets["diverged"]:
+                print(f"  {format_path(repo)} ({s['branch']}) ↑{s['ahead']} ↓{s['behind']}")
+    if _show("dirty") and buckets["dirty"]:
         print(f"{Color.YELLOW}✗ Dirty:{Color.RESET} {len(buckets['dirty'])}")
-        for repo, s in buckets["dirty"]:
-            print(f"  {format_path(repo)} ({s['branch']})")
-    if buckets["no_remote"]:
+        if show_details:
+            for repo, s in buckets["dirty"]:
+                sync = ""
+                if s["ahead"] > 0:
+                    sync += f" ↑{s['ahead']}"
+                if s["behind"] > 0:
+                    sync += f" ↓{s['behind']}"
+                print(f"  {format_path(repo)} ({s['branch']}){sync}")
+    if _show("no_remote") and buckets["no_remote"]:
         print(f"{Color.GRAY}○ No remote:{Color.RESET} {len(buckets['no_remote'])}")
-        for repo, s in buckets["no_remote"]:
-            print(f"  {format_path(repo)} ({s['branch']})")
+        if show_details:
+            for repo, s in buckets["no_remote"]:
+                print(f"  {format_path(repo)} ({s['branch']})")
 
-    _summary_end(len(results))
+    if categories is None:
+        total = len(results)
+    else:
+        total = sum(len(buckets[c]) for c in categories if c in buckets)
+    _summary_end(total)
 
 
 def get_current_branch(repo: Path) -> str:
@@ -647,44 +696,6 @@ def update_repo(repo: Path, dry_run: bool = False) -> RepoResult:
     return RepoResult(repo, Status.UPDATED, pull_result.stdout.strip(), branch, changes)
 
 
-def _check_dirty(repo: Path) -> Optional[RepoResult]:
-    """Check if a single repo is dirty. Returns RepoResult if dirty, None otherwise."""
-    branch = get_current_branch(repo)
-    if is_dirty(repo):
-        result = run_git(repo, "status", "--porcelain")
-        return RepoResult(repo, Status.DIRTY, result.stdout.strip(), branch)
-    return None
-
-
-def check_dirty_repos(repos: List[Path], jobs: int = 1, quiet: bool = False) -> List[RepoResult]:
-    """Check which repositories have uncommitted changes."""
-    if jobs > 1:
-        with ThreadPoolExecutor(max_workers=jobs) as executor:
-            all_results = list(executor.map(_check_dirty, repos))
-    else:
-        all_results = [_check_dirty(repo) for repo in repos]
-
-    results = [item for item in all_results if item is not None]
-    results.sort(key=lambda r: r.path.name.lower())
-
-    if not quiet:
-        for item in results:
-            print(f"{Color.GREEN}●{Color.RESET} {format_path(item.path)} ({item.branch}) {Color.YELLOW}✗ dirty{Color.RESET}")
-    return results
-
-
-def print_dirty_summary(results: List[RepoResult], total: int) -> None:
-    """Print summary for the dirty command."""
-    _summary_start()
-    if results:
-        print(f"{Color.YELLOW}✗ Dirty:{Color.RESET} {len(results)}")
-        for r in results:
-            print(f"  {format_path(r.path)} ({r.branch})")
-    else:
-        print(f"{Color.GREEN}✓ All repositories are clean.{Color.RESET}")
-    _summary_end(total)
-
-
 def update_repos_parallel(
     repos: List[Path],
     jobs: int,
@@ -741,7 +752,6 @@ def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
     up_to_date = [r for r in results if r.status == Status.UP_TO_DATE]
     errors = by_name([r for r in results if r.status == Status.ERROR])
     no_remote = [r for r in results if r.status == Status.NO_REMOTE]
-    dirty = by_name([r for r in results if r.status == Status.DIRTY])
 
     prefix = "[DRY-RUN] " if dry_run else ""
     _summary_start(f"{prefix}Summary:")
@@ -759,11 +769,6 @@ def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
     if no_remote:
         print(f"{Color.GRAY}○ No remote:{Color.RESET} {len(no_remote)}")
 
-    if dirty:
-        print(f"{Color.YELLOW}! Dirty repos:{Color.RESET} {len(dirty)}")
-        for r in dirty:
-            print(f"  {format_path(r.path)}")
-
     if errors:
         print(f"{Color.RED}✗ Errors:{Color.RESET} {len(errors)}")
         for r in errors:
@@ -775,7 +780,7 @@ def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
     _summary_end(len(results))
 
 
-COMMANDS = {"update", "dirty", "status", "remote", "age"}
+COMMANDS = {"update", "status", "remote", "age"}
 
 
 def _run_command(args: argparse.Namespace) -> int:
@@ -804,11 +809,6 @@ def _run_command(args: argparse.Namespace) -> int:
     command = args.command
     jobs = args.jobs
 
-    if command == "dirty":
-        results = check_dirty_repos(repos, jobs=jobs, quiet=quiet)
-        print_dirty_summary(results, total=len(repos))
-        return 0
-
     if command == "remote":
         if args.raw:
             if args.without_remote:
@@ -835,7 +835,17 @@ def _run_command(args: argparse.Namespace) -> int:
         return 0
 
     if command == "status":
-        show_status(repos, jobs=jobs, quiet=quiet)
+        status_categories = {
+            cat
+            for cat in ("clean", "ahead", "behind", "diverged", "dirty")
+            if getattr(args, cat, False)
+        }
+        show_status(
+            repos,
+            jobs=jobs,
+            categories=status_categories or None,
+            quiet=quiet,
+        )
         return 0
 
     if command == "age":
@@ -962,13 +972,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Show what would be updated without pulling",
     )
 
-    # dirty command
-    subparsers.add_parser(
-        "dirty",
-        parents=[shared],
-        help="List repos with uncommitted changes",
-    )
-
     # remote command
     remote_parser = subparsers.add_parser(
         "remote",
@@ -992,10 +995,35 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     # status command
-    subparsers.add_parser(
+    status_parser = subparsers.add_parser(
         "status",
         parents=[shared],
         help="Show status: branch, ahead/behind, dirty state",
+    )
+    status_parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Show only clean repos (in sync, no uncommitted changes)",
+    )
+    status_parser.add_argument(
+        "--ahead",
+        action="store_true",
+        help="Show only repos with unpushed commits",
+    )
+    status_parser.add_argument(
+        "--behind",
+        action="store_true",
+        help="Show only repos with unpulled commits",
+    )
+    status_parser.add_argument(
+        "--diverged",
+        action="store_true",
+        help="Show only repos both ahead and behind",
+    )
+    status_parser.add_argument(
+        "--dirty",
+        action="store_true",
+        help="Show only repos with uncommitted changes (skips fetch — fast/offline)",
     )
 
     # age command

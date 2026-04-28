@@ -22,8 +22,8 @@ repos-update ~/Code                    # Update all repos (default command)
 repos-update ~/Code ~/Projects         # Update repos in multiple directories
 repos-update ~/Code -j 8               # Update 8 repos in parallel
 repos-update ~/Code --dry-run          # Preview what would be updated
-repos-update dirty ~/Code              # List repos with uncommitted changes
 repos-update status ~/Code             # Show branch, ahead/behind, dirty state
+repos-update status ~/Code --dirty     # Only repos with uncommitted changes (skips fetch — fast/offline)
 repos-update age ~/Code                # Show last commit age (color-coded)
 repos-update remote ~/Code             # List repos by remote configuration (both buckets)
 repos-update remote ~/Code --without-remote   # Only repos without a remote
@@ -35,8 +35,7 @@ repos-update remote ~/Code --raw       # Print only origin URLs, sorted (pipe-fr
 | Command | Description |
 |---------|-------------|
 | `update` | Update repositories (default) |
-| `dirty` | List repos with uncommitted changes |
-| `status` | Show branch, ahead/behind, dirty state |
+| `status` | Show branch, ahead/behind, dirty state; combinable filters narrow output (see below) |
 | `age` | Show last commit age (green: ≤1mo, yellow: ≤3mo, orange: ≤6mo, red: ≤1yr, magenta: >1yr) |
 | `remote` | List repos by remote configuration; `--with-remote` / `--without-remote` filter to one bucket; `--raw` prints sorted origin URLs only |
 
@@ -54,11 +53,30 @@ repos-update remote ~/Code --raw       # Print only origin URLs, sorted (pipe-fr
 
 Every command prints a sorted summary block at the end:
 
-- `update` — grouped by updated / up-to-date / no-remote / dirty / errors, names sorted alphabetically within each group
-- `status` — live output streams unsorted (for progress feedback during `git fetch`); summary groups repos by state (clean / ahead / behind / diverged / dirty / no-remote), sorted alphabetically within each group
-- `dirty` — live output sorted alphabetically; summary restates counts and names
+- `update` — grouped by updated / up-to-date / no-remote / errors, names sorted alphabetically within each group
+- `status` — live output streams unsorted (for progress feedback during `git fetch`); summary groups repos by state (clean / ahead / behind / diverged / dirty / no-remote), sorted alphabetically within each group; filters narrow both live and summary output
 - `remote` — live output groups with-remote (with URLs) above no-remote, each sorted alphabetically; summary shows counts per bucket
 - `age` — live output sorted most recent to oldest; summary shows counts per category (recent / aging / stale / old)
+
+### Status Command Filters
+
+Filter repos by classification (combinable):
+
+| Option | Bucket |
+|--------|--------|
+| `--clean` | In sync with remote, no uncommitted changes |
+| `--ahead` | Local commits not yet pushed |
+| `--behind` | Remote commits not yet pulled |
+| `--diverged` | Both ahead and behind |
+| `--dirty` | Uncommitted changes (skips `git fetch` when used alone — fast/offline) |
+
+When only `--dirty` is passed, `status` skips the network calls entirely and runs as fast as a local-only check. Combining any of `--clean / --ahead / --behind / --diverged` re-enables `git fetch` so ahead/behind counts can be computed.
+
+```bash
+repos-update status ~/Code --dirty           # Fast offline check for uncommitted changes
+repos-update status ~/Code --ahead --behind  # Anything out of sync with origin
+repos-update status ~/Code --clean           # Only repos with nothing to do
+```
 
 ### Age Command Filters
 

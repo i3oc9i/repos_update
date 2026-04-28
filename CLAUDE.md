@@ -25,8 +25,9 @@ uv tool install . --force
 # Commands
 uv run repos-update ~/Code                  # Update repos (default command)
 uv run repos-update update ~/Code --dry-run # Show what would be updated
-uv run repos-update dirty ~/Code            # List repos with uncommitted changes
 uv run repos-update status ~/Code           # Show branch, ahead/behind, dirty state
+uv run repos-update status ~/Code --dirty   # Only repos with uncommitted changes (skips fetch)
+uv run repos-update status ~/Code --ahead --behind # Combine filters; fetch runs
 uv run repos-update age ~/Code              # Show last commit age (color-coded)
 uv run repos-update age ~/Code --stale --old --ancient # Filter by age category
 uv run repos-update remote ~/Code           # List repos by remote configuration (both buckets)
@@ -53,8 +54,8 @@ Single-file module: `repos_update.py`
 - `get_change_summary()` - Get commit count and diff stats
 - `get_diff_stats()` - Parse `git diff --shortstat` for files/lines changed
 - `format_path()` - Format paths as relative or absolute
-- `get_repo_status()` - Get branch, ahead/behind, dirty state
-- `show_status()` - Display status for all repos
+- `get_repo_status()` - Get branch, ahead/behind, dirty state; `needs_fetch=False` skips network for offline checks
+- `show_status()` - Display status for all repos; supports category filtering (clean/ahead/behind/diverged/dirty); skips fetch when only local categories are requested
 - `show_remotes()` - Display repos grouped by remote configuration, with optional bucket filtering
 - `show_remotes_raw()` - Print sorted origin URLs only (pipe-friendly), skipping repos without origin
 - `get_last_commit_age()` - Get last commit date and formatted age string
