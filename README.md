@@ -25,6 +25,8 @@ repos-update ~/Code --dry-run          # Preview what would be updated
 repos-update status ~/Code             # Show branch, ahead/behind, dirty state
 repos-update status ~/Code --dirty     # Only repos with uncommitted changes (skips fetch — fast/offline)
 repos-update age ~/Code                # Show last commit age (color-coded)
+repos-update stars ~/Code              # Show GitHub star count (requires `gh` login)
+repos-update stars ~/Code --famous --iconic   # Only highly-starred repos
 repos-update remote ~/Code             # List repos by remote configuration (both buckets)
 repos-update remote ~/Code --without-remote   # Only repos without a remote
 repos-update remote ~/Code --raw       # Print only origin URLs, sorted (pipe-friendly)
@@ -37,6 +39,7 @@ repos-update remote ~/Code --raw       # Print only origin URLs, sorted (pipe-fr
 | `update` | Update repositories (default) |
 | `status` | Show branch, ahead/behind, dirty state; combinable filters narrow output (see below) |
 | `age` | Show last commit age (green: ≤1mo, yellow: ≤3mo, orange: ≤6mo, red: ≤1yr, magenta: >1yr) |
+| `stars` | Show GitHub star count per repo; uses `gh api` so you must be logged in via `gh auth login`. Non-GitHub or unreachable repos land in an `unknown` bucket |
 | `remote` | List repos by remote configuration; `--with-remote` / `--without-remote` filter to one bucket; `--raw` prints sorted origin URLs only |
 
 ## Options
@@ -57,6 +60,7 @@ Every command prints a sorted summary block at the end:
 - `status` — live output streams unsorted (for progress feedback during `git fetch`); summary groups repos by state (clean / ahead / behind / diverged / dirty / no-remote), sorted alphabetically within each group; filters narrow both live and summary output
 - `remote` — live output groups with-remote (with URLs) above no-remote, each sorted alphabetically; summary shows counts per bucket
 - `age` — live output sorted most recent to oldest; summary shows counts per category (recent / aging / stale / old)
+- `stars` — live output sorted by star count descending (`unknown` last); summary shows counts per category (iconic / famous / notable / popular / modest / unknown)
 
 ### Status Command Filters
 
@@ -97,6 +101,26 @@ repos-update age ~/Code --stale --old    # Show only stale and old repos
 repos-update age ~/Code --recent         # Show only recently updated repos
 ```
 
+### Stars Command Filters
+
+Requires `gh` to be installed and authenticated (`gh auth login`). Each repo is identified by its `origin` URL; non-GitHub remotes, missing remotes, API errors, and inaccessible private repos all fall into the `unknown` bucket.
+
+Results are sorted by star count descending (`unknown` repos last). Filters can be combined.
+
+| Option | Category | Threshold |
+|--------|----------|-----------|
+| `--modest` | Gray | <1000 stars |
+| `--popular` | Yellow | ≥1000 stars |
+| `--notable` | Green | ≥5000 stars |
+| `--famous` | Orange | ≥10000 stars |
+| `--iconic` | Magenta | ≥50000 stars |
+
+```bash
+repos-update stars ~/Code -j 8                 # Parallel network calls (recommended)
+repos-update stars ~/Code --famous --iconic    # Only highly-starred repos
+repos-update stars ~/Code --modest             # Only your own / lightly-starred repos
+```
+
 ### Remote Command Filters
 
 With no flags, both buckets are shown. Flags can be combined; combining both is equivalent to passing neither.
@@ -126,3 +150,4 @@ repos-update remote ~/Code --raw | sort -u    # Dedupe origin URLs across repos
 
 - Python 3.12+
 - Git
+- `gh` CLI authenticated via `gh auth login` (required only for the `stars` command)

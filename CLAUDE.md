@@ -30,6 +30,8 @@ uv run repos-update status ~/Code --dirty   # Only repos with uncommitted change
 uv run repos-update status ~/Code --ahead --behind # Combine filters; fetch runs
 uv run repos-update age ~/Code              # Show last commit age (color-coded)
 uv run repos-update age ~/Code --stale --old --ancient # Filter by age category
+uv run repos-update stars ~/Code            # Show GitHub star count (requires `gh auth login`)
+uv run repos-update stars ~/Code --famous --iconic # Filter by star-count category
 uv run repos-update remote ~/Code           # List repos by remote configuration (both buckets)
 uv run repos-update remote ~/Code --without-remote # Only repos without a remote
 uv run repos-update remote ~/Code --raw     # Print only origin URLs, sorted (pipe-friendly)
@@ -62,6 +64,10 @@ Single-file module: `repos_update.py`
 - `get_age_color()` - Return color based on commit age thresholds
 - `get_age_category()` - Return age category name (recent, aging, stale, old)
 - `show_age()` - Display last commit age for all repos (supports category filtering)
+- `parse_github_url()` - Parse SSH/HTTPS GitHub remote URL into `(owner, repo)`; returns `None` for non-GitHub URLs
+- `get_github_stars()` - Query star count via `gh api repos/{owner}/{repo} --jq .stargazers_count`; returns `None` on any error
+- `get_stars_color()` / `get_stars_category()` - Map a star count to color / bucket name (modest/popular/notable/famous/iconic)
+- `show_stars()` - Display star count per repo, parallelized via `--jobs`; supports category filtering
 
 ## Important
 

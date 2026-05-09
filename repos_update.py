@@ -644,6 +644,156 @@ def print_age_summary(results: list[tuple[Path, datetime | None, str]]) -> None:
     _summary_end(len(results))
 
 
+_GITHUB_URL_RE = re.compile(
+    r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
+    r"(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
+)
+
+
+def parse_github_url(url: str) -> tuple[str, str] | None:
+    """Parse a GitHub remote URL into (owner, repo). Returns None if not GitHub."""
+    if not url:
+        return None
+    match = _GITHUB_URL_RE.match(url.strip())
+    if not match:
+        return None
+    return match.group("owner"), match.group("repo")
+
+
+def get_github_stars(owner: str, repo: str) -> int | None:
+    """Query GitHub for a repo's star count via `gh api`. Returns None on any error."""
+    result = subprocess.run(
+        ["gh", "api", f"repos/{owner}/{repo}", "--jq", ".stargazers_count"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
+
+
+def get_stars_color(stars: int | None) -> str:
+    """Return appropriate color based on star count."""
+    if stars is None:
+        return Color.GRAY
+    if stars >= 50000:
+        return Color.MAGENTA
+    if stars >= 10000:
+        return Color.ORANGE
+    if stars >= 5000:
+        return Color.GREEN
+    if stars >= 1000:
+        return Color.YELLOW
+    return Color.GRAY
+
+
+def get_stars_category(stars: int | None) -> str:
+    """Return star-count category name."""
+    if stars is None:
+        return "unknown"
+    if stars >= 50000:
+        return "iconic"
+    if stars >= 10000:
+        return "famous"
+    if stars >= 5000:
+        return "notable"
+    if stars >= 1000:
+        return "popular"
+    return "modest"
+
+
+def _get_stars_with_path(repo: Path) -> tuple[Path, int | None]:
+    """Get GitHub star count for a repo along with its path."""
+    url = get_remote_url(repo)
+    parsed = parse_github_url(url)
+    if parsed is None:
+        return (repo, None)
+    owner, name = parsed
+    return (repo, get_github_stars(owner, name))
+
+
+def show_stars(
+    repos: List[Path],
+    jobs: int = 1,
+    categories: set[str] | None = None,
+    quiet: bool = False,
+) -> None:
+    """Display GitHub star count for each repository.
+
+    Args:
+        repos: List of repository paths to check.
+        jobs: Number of parallel jobs (network-bound, benefits from high parallelism).
+        categories: If provided, only show repos in these categories
+                   ("modest", "popular", "notable", "famous", "iconic").
+        quiet: Suppress per-repo output (summary still prints).
+    """
+    if jobs > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            results = list(executor.map(_get_stars_with_path, repos))
+    else:
+        results = [_get_stars_with_path(repo) for repo in repos]
+
+    # Sort by star count descending; unknown (None) goes last, then by name.
+    results.sort(
+        key=lambda r: (
+            -1 if r[1] is None else 0,
+            -(r[1] or 0),
+            r[0].name.lower(),
+        )
+    )
+
+    filtered = []
+    for repo, stars in results:
+        if categories:
+            if get_stars_category(stars) not in categories:
+                continue
+        filtered.append((repo, stars))
+
+        if not quiet:
+            path_str = format_path(repo)
+            color = get_stars_color(stars)
+            if stars is None:
+                print(
+                    f"{Color.GRAY}○{Color.RESET} {path_str} "
+                    f"{Color.GRAY}(no GitHub remote){Color.RESET}"
+                )
+            else:
+                category = get_stars_category(stars)
+                print(
+                    f"{color}●{Color.RESET} {path_str} "
+                    f"{color}★ {stars} ({category}){Color.RESET}"
+                )
+
+    print_stars_summary(filtered)
+
+
+def print_stars_summary(results: list[tuple[Path, int | None]]) -> None:
+    """Print stars summary with counts per category."""
+    buckets: dict[str, int] = {
+        "iconic": 0, "famous": 0, "notable": 0, "popular": 0, "modest": 0, "unknown": 0,
+    }
+    for _, stars in results:
+        buckets[get_stars_category(stars)] += 1
+
+    _summary_start()
+    if buckets["iconic"]:
+        print(f"{Color.MAGENTA}● Iconic (≥50000):{Color.RESET} {buckets['iconic']}")
+    if buckets["famous"]:
+        print(f"{Color.ORANGE}● Famous (≥10000):{Color.RESET} {buckets['famous']}")
+    if buckets["notable"]:
+        print(f"{Color.GREEN}● Notable (≥5000):{Color.RESET} {buckets['notable']}")
+    if buckets["popular"]:
+        print(f"{Color.YELLOW}● Popular (≥1000):{Color.RESET} {buckets['popular']}")
+    if buckets["modest"]:
+        print(f"{Color.GRAY}● Modest (<1000):{Color.RESET} {buckets['modest']}")
+    if buckets["unknown"]:
+        print(f"{Color.GRAY}● Unknown (no GitHub remote / API error):{Color.RESET} {buckets['unknown']}")
+    _summary_end(len(results))
+
+
 def check_updates_available(repo: Path) -> tuple[bool, str]:
     """Fetch and check if updates are available (for dry-run)."""
     # Fetch all remotes
@@ -780,7 +930,7 @@ def print_report(results: List[RepoResult], dry_run: bool = False) -> None:
     _summary_end(len(results))
 
 
-COMMANDS = {"update", "status", "remote", "age"}
+COMMANDS = {"update", "status", "remote", "age", "stars"}
 
 
 def _run_command(args: argparse.Namespace) -> int:
@@ -854,6 +1004,14 @@ def _run_command(args: argparse.Namespace) -> int:
             if getattr(args, cat, False):
                 categories.add(cat)
         show_age(repos, jobs=jobs, categories=categories or None, quiet=quiet)
+        return 0
+
+    if command == "stars":
+        categories = set()
+        for cat in ("modest", "popular", "notable", "famous", "iconic"):
+            if getattr(args, cat, False):
+                categories.add(cat)
+        show_stars(repos, jobs=jobs, categories=categories or None, quiet=quiet)
         return 0
 
     # Default: update command
@@ -1056,6 +1214,38 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--ancient",
         action="store_true",
         help="Show repos not updated in over 1 year (magenta)",
+    )
+
+    # stars command
+    stars_parser = subparsers.add_parser(
+        "stars",
+        parents=[shared],
+        help="Show GitHub star count for each repository (requires `gh` login)",
+    )
+    stars_parser.add_argument(
+        "--modest",
+        action="store_true",
+        help="Show repos with <1000 stars (gray)",
+    )
+    stars_parser.add_argument(
+        "--popular",
+        action="store_true",
+        help="Show repos with ≥1000 stars (yellow)",
+    )
+    stars_parser.add_argument(
+        "--notable",
+        action="store_true",
+        help="Show repos with ≥5000 stars (green)",
+    )
+    stars_parser.add_argument(
+        "--famous",
+        action="store_true",
+        help="Show repos with ≥10000 stars (orange)",
+    )
+    stars_parser.add_argument(
+        "--iconic",
+        action="store_true",
+        help="Show repos with ≥50000 stars (magenta)",
     )
 
     # Reorder help sections: commands before options
