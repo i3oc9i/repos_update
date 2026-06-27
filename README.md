@@ -30,6 +30,7 @@ repos-update stars ~/Code --famous --iconic   # Only highly-starred repos
 repos-update remote ~/Code             # List repos by remote configuration (both buckets)
 repos-update remote ~/Code --without-remote   # Only repos without a remote
 repos-update remote ~/Code --raw       # Print only origin URLs, sorted (pipe-friendly)
+repos-update remote ~/Code --with-path # Raw '<path>: <url>' per line (implies --raw)
 ```
 
 ## Commands
@@ -40,7 +41,7 @@ repos-update remote ~/Code --raw       # Print only origin URLs, sorted (pipe-fr
 | `status` | Show branch, ahead/behind, dirty state; combinable filters narrow output (see below) |
 | `age` | Show last commit age (green: ≤1mo, yellow: ≤3mo, orange: ≤6mo, red: ≤1yr, magenta: >1yr) |
 | `stars` | Show GitHub star count per repo; uses `gh api` so you must be logged in via `gh auth login`. Non-GitHub or unreachable repos land in an `unknown` bucket |
-| `remote` | List repos by remote configuration; `--with-remote` / `--without-remote` filter to one bucket; `--raw` prints sorted origin URLs only |
+| `remote` | List repos by remote configuration; `--with-remote` / `--without-remote` filter to one bucket; `--raw` prints sorted origin URLs only; `--with-path` prints `<path>: <url>` |
 
 ## Options
 
@@ -130,12 +131,14 @@ With no flags, both buckets are shown. Flags can be combined; combining both is 
 | `--with-remote` | Repos that have at least one remote configured |
 | `--without-remote` | Repos with no remotes configured |
 | `--raw` | Print only `origin` URLs, sorted alphabetically, one per line. Suppresses headers, colors, and summary. Repos without an `origin` remote are skipped. Cannot be combined with `--without-remote`. |
+| `--with-path` | Raw output as `<path>: <url>`, sorted by path. Implies `--raw`; path honors `--full-path`. |
 
 ```bash
 repos-update remote ~/Code --with-remote      # Only repos with remotes
 repos-update remote ~/Code --without-remote   # Only repos without remotes
 repos-update remote ~/Code --raw              # Pure origin URLs, one per line
 repos-update remote ~/Code --raw | sort -u    # Dedupe origin URLs across repos
+repos-update remote ~/Code --with-path        # '<path>: <url>' per line (implies --raw)
 ```
 
 ## Output Example

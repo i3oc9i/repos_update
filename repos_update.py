@@ -196,21 +196,34 @@ def show_remotes(
     return with_remote, without_remote
 
 
-def show_remotes_raw(repos: List[Path], jobs: int = 1) -> None:
-    """Print sorted origin URLs, one per line. Skips repos without origin."""
+def show_remotes_raw(
+    repos: List[Path], jobs: int = 1, with_path: bool = False
+) -> None:
+    """Print sorted origin URLs, one per line. Skips repos without origin.
+
+    When `with_path` is set, each line becomes ``<path>: <url>`` (path
+    formatted via `format_path`) and lines are sorted by path.
+    """
     if jobs > 1:
         with ThreadPoolExecutor(max_workers=jobs) as executor:
             results = list(executor.map(_get_repo_remotes, repos))
     else:
         results = [_get_repo_remotes(repo) for repo in repos]
 
-    urls = sorted(
-        remotes["origin"]
-        for _, remotes in results
-        if "origin" in remotes
-    )
-    for url in urls:
-        print(url)
+    if with_path:
+        lines = sorted(
+            f"{format_path(repo)}: {remotes['origin']}"
+            for repo, remotes in results
+            if "origin" in remotes
+        )
+    else:
+        lines = sorted(
+            remotes["origin"]
+            for _, remotes in results
+            if "origin" in remotes
+        )
+    for line in lines:
+        print(line)
 
 
 def print_remote_summary(
@@ -941,7 +954,9 @@ def _run_command(args: argparse.Namespace) -> int:
     set_path_display(directories, args.full_path)
 
     quiet = getattr(args, "quiet", False)
-    raw_remote = args.command == "remote" and getattr(args, "raw", False)
+    raw_remote = args.command == "remote" and (
+        getattr(args, "raw", False) or getattr(args, "with_path", False)
+    )
 
     if not quiet and not raw_remote:
         print(f"{Color.BOLD}Scanning for git repositories...{Color.RESET}")
@@ -960,15 +975,17 @@ def _run_command(args: argparse.Namespace) -> int:
     jobs = args.jobs
 
     if command == "remote":
-        if args.raw:
+        raw_active = args.raw or args.with_path
+        if raw_active:
             if args.without_remote:
                 print(
                     f"{Color.RED}Error:{Color.RESET} "
-                    "--raw cannot be combined with --without-remote",
+                    "raw mode (--raw / --with-path) cannot be combined "
+                    "with --without-remote",
                     file=sys.stderr,
                 )
                 return 1
-            show_remotes_raw(repos, jobs=jobs)
+            show_remotes_raw(repos, jobs=jobs, with_path=args.with_path)
             return 0
         show_with = args.with_remote
         show_without = args.without_remote
@@ -1150,6 +1167,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--raw",
         action="store_true",
         help="Print only origin URLs, sorted, one per line (pipe-friendly)",
+    )
+    remote_parser.add_argument(
+        "--with-path",
+        action="store_true",
+        help="Raw output as '<path>: <url>' (implies --raw)",
     )
 
     # status command

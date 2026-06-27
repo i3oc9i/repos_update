@@ -35,6 +35,7 @@ uv run repos-update stars ~/Code --famous --iconic # Filter by star-count catego
 uv run repos-update remote ~/Code           # List repos by remote configuration (both buckets)
 uv run repos-update remote ~/Code --without-remote # Only repos without a remote
 uv run repos-update remote ~/Code --raw     # Print only origin URLs, sorted (pipe-friendly)
+uv run repos-update remote ~/Code --with-path # Raw output as '<path>: <url>' (implies --raw)
 
 # Global options (all commands)
 -j N, --jobs N                              # Process N repos in parallel
@@ -59,7 +60,7 @@ Single-file module: `repos_update.py`
 - `get_repo_status()` - Get branch, ahead/behind, dirty state; `needs_fetch=False` skips network for offline checks
 - `show_status()` - Display status for all repos; supports category filtering (clean/ahead/behind/diverged/dirty); skips fetch when only local categories are requested
 - `show_remotes()` - Display repos grouped by remote configuration, with optional bucket filtering
-- `show_remotes_raw()` - Print sorted origin URLs only (pipe-friendly), skipping repos without origin
+- `show_remotes_raw()` - Print sorted origin URLs only (pipe-friendly), skipping repos without origin; `with_path=True` prints `<path>: <url>` sorted by path
 - `get_last_commit_age()` - Get last commit date and formatted age string
 - `get_age_color()` - Return color based on commit age thresholds
 - `get_age_category()` - Return age category name (recent, aging, stale, old)
